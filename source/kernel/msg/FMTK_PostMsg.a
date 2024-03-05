@@ -1,0 +1,61 @@
+#include "types.h"
+#include "const.h"
+#include "config.h"
+#include "proto.h"
+#include "glo.h"
+
+/* ---------------------------------------------------------------
+	Description:
+		PostMsg() is meant to be called in order to send a
+	message without causing the thread to switch. This is
+	useful in some cases. For example interrupts that don't
+	require a low latency. Normally SendMsg() will be called,
+	even from an ISR to allow the OS to prioritize events.
+--------------------------------------------------------------- */
+public int FMTK_PostMsg(hMBX hMbx, int d1, int d2, int d3)
+{
+	MBX *mbx;
+	MSG *msg;
+	TCB *thrd;
+  int ret;
+
+	if (hMbx < 0 || hMbx >= NR_MBX)
+		return (E_Arg);
+	mbx = &mailbox[hMbx];
+	if (LockSysSemaphore(-1)) {
+		// check for a mailbox owner which indicates the mailbox
+		// is active.
+		if (mbx->owner < 0 || mbx->owner >= NR_ACB) {
+	    UnlockSysSemaphore();
+			return (E_NotAlloc);
+    }
+		if (freeMSG < 0 || freeMSG >= NR_MSG) {
+	    UnlockSysSemaphore();
+			return (E_NoMoreMsgBlks);
+    }
+		msg = &message[freeMSG];
+		freeMSG = msg->link;
+		--nMsgBlk;
+		msg->retadr = GetAppHandle();
+		msg->tgtadr = hMbx;
+		msg->type = MBT_DATA;
+		msg->d1 = d1;
+		msg->d2 = d2;
+		msg->d3 = d3;
+		DequeThreadFromMbx(mbx, &thrd);
+	  UnlockSysSemaphore();
+  }
+	if (thrd == null) {
+    ret = QueueMsg(mbx, msg);
+		return (ret);
+  }
+	if (LockSysSemaphore(-1)) {
+		CopyMsg(&thrd->msg,msg);
+	  FreeMsg(msg);
+  	if (thrd->status & TS_TIMEOUT)
+  		RemoveFromTimeoutList(thrd-tcbs);
+  	InsertIntoReadyList(thrd-tcbs);
+    UnlockSysSemaphore();
+  }
+	return (E_Ok);
+}

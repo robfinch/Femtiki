@@ -1,0 +1,106 @@
+#include "types.h"
+#include "const.h"
+#include "config.h"
+#include "proto.h"
+#include "glo.h"
+
+/* ---------------------------------------------------------------
+	Description:
+		Queue a message at a mailbox.
+
+	Assumptions:
+		valid mailbox parameter.
+
+	Called from:
+		SendMsg
+		PostMsg
+--------------------------------------------------------------- */
+
+pascal int QueueMsg(MBX *mbx, MSG *msg)
+{
+  MSG *tmpmsg;
+  hMSG htmp;
+	int rr = E_Ok;
+
+	if (LockSysSemaphore(-1)) {
+		mbx->mq_count++;
+	
+		// handle potential queue overflows
+    switch (mbx->mq_strategy) {
+	    
+  	// unlimited queing (do nothing)
+		case MQS_UNLIMITED:
+			break;
+			
+		// buffer newest
+		// if the queue is full then old messages are lost
+		// Older messages are at the head of the queue.
+		// loop incase message queing strategy was changed
+    case MQS_NEWEST:
+      while (mbx->mq_count > mbx->mq_size) {
+        // return outdated message to message pool
+        htmp = message[mbx->mq_head].link;
+        tmpmsg = &message[htmp];
+        message[mbx->mq_head].link = freeMSG;
+        freeMSG = mbx->mq_head;
+				nMsgBlk++;
+				mbx->mq_count--;
+        mbx->mq_head = htmp;
+				if (mbx->mq_missed < MAX_UINT)
+					mbx->mq_missed++;
+				rr = E_QueFull;
+			}
+      break;
+   
+		// buffer oldest
+		// if the queue is full then new messages are lost
+		// loop incase message queing strategy was changed
+		case MQS_OLDEST:
+			// first return the passed message to free pool
+			if (mbx->mq_count > mbx->mq_size) {
+				// return new message to pool
+				msg->link = freeMSG;
+				freeMSG = msg-message;
+				nMsgBlk++;
+				if (mbx->mq_missed < MAX_UINT)
+					mbx->mq_missed++;
+				rr = E_QueFull;
+				mbx->mq_count--;
+			}
+			// next if still over the message limit (which
+			// might happen if que strategy was changed), return
+			// messages to free pool
+			while (mbx->mq_count > mbx->mq_size) {
+				// locate the second last message on the que
+				tmpmsg = &message[mbx->mq_head];
+				while (tmpmsg-message <> mbx->mq_tail) {
+					msg = tmpmsg;
+					tmpmsg = &message[tmpmsg->link];
+				}
+				mbx->mq_tail = msg-message;
+				tmpmsg->link = freeMSG;
+				freeMSG = tmpmsg-message;
+				nMsgBlk++;
+				if (mbx->mq_missed < MAX_UINT)
+					mbx->mq_missed++;
+				mbx->mq_count--;
+				rr = E_QueFull;
+			}
+			if (rr == E_QueFull) {
+   	    UnlockSysSemaphore();
+				return (rr);
+      }
+      break;
+		}
+		// if there is a message in the queue
+		if (mbx->mq_tail >= 0)
+			message[mbx->mq_tail].link = msg-message;
+		else
+			mbx->mq_head = msg-message;
+		mbx->mq_tail = msg-message;
+		msg->link = -1;
+    UnlockSysSemaphore();
+  }
+	return (rr);
+}
+

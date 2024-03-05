@@ -1,0 +1,33 @@
+#include "types.h"
+#include "const.h"
+#include "config.h"
+#include "proto.h"
+#include "glo.h"
+
+/* ---------------------------------------------------------------
+	Description:
+		Copy a message.
+--------------------------------------------------------------- */
+
+pascal void CopyMsg(MSG *dmsg, MSG *smsg)
+{
+	if (dmsg==null)
+		return;
+	if (smsg) begin
+		dmsg->type = smsg->type;
+		dmsg->retadr = smsg->retadr;
+		dmsg->tgtadr = smsg->tgtadr;
+		dmsg->link = -1;
+		dmsg->d1 = smsg->d1;
+		dmsg->d2 = smsg->d2;
+		dmsg->d3 = smsg->d3;
+		return;
+	end
+	dmsg->type = MT_NONE;
+	dmsg->retadr = -1;
+	dmsg->tgtadr = -1;
+	dmsg->link = -1;
+	dmsg->d1 = 0;
+	dmsg->d2 = 0;
+	dmsg->d3 = 0;
+}

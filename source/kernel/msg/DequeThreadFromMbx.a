@@ -1,0 +1,49 @@
+#include "types.h"
+#include "const.h"
+#include "config.h"
+#include "proto.h"
+#include "glo.h"
+
+/* ---------------------------------------------------------------
+	Description:
+		Dequeues a thread from a mailbox. The thread will also
+	be removed from the timeout list (if it's present there),
+	and	the timeout list will be adjusted accordingly.
+
+	Assumptions:
+		Mailbox parameter is valid.
+--------------------------------------------------------------- */
+
+int DequeThreadFromMbx(MBX *mbx, TCB **thrd)
+{
+	if (thrd == null || mbx == null)
+		return (E_Arg);
+
+	if (LockSysSemaphore(-1)) {
+		if (mbx->tq_head == -1) {
+  		UnlockSysSemaphore();
+			*thrd = null;
+			return (E_NoThread);
+		}
+	
+		mbx->tq_count--;
+		*thrd = &tcbs[mbx->tq_head];
+		mbx->tq_head = tcbs[mbx->tq_head].mbq_next;
+		if (mbx->tq_head > 0)
+			tcbs[mbx->tq_head].mbq_prev = -1;
+		else
+			mbx->tq_tail = -1;
+		UnlockSysSemaphore();
+	}
+
+	// if thread is also on the timeout list then
+	// remove from timeout list
+	// adjust succeeding thread timeout if present
+	if ((*thrd)->status & TS_TIMEOUT)
+		RemoveFromTimeoutList(*thrd);
+
+	(*thrd)->mbq_prev = (*thrd)->mbq_next = -1;
+	(*thrd)->hWaitMbx = -1;	// no longer waiting at mailbox
+	(*thrd)->status &= ~TS_WAITMSG;
+	return (E_Ok);
+}

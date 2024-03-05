@@ -1,0 +1,38 @@
+#include "types.h"
+#include "const.h"
+#include "config.h"
+#include "proto.h"
+#include "glo.h"
+
+/* ---------------------------------------------------------------
+	Description:
+		Dequeues a message from a mailbox.
+
+	Assumptions:
+		Mailbox parameter is valid.
+		System semaphore is locked already.
+
+	Called from:
+		FreeMbx - (locks mailbox)
+		WaitMsg	-	"
+		CheckMsg-	"
+--------------------------------------------------------------- */
+
+pascal MSG *DequeueMsg(MBX *mbx)
+{
+	MSG *tmpmsg = null;
+  hMSG hm;
+ 
+	if (mbx->mq_count) {
+		mbx->mq_count--;
+		hm = mbx->mq_head;
+		if (hm >= 0) {	// should not be negative
+	    tmpmsg = &message[hm];
+			mbx->mq_head = tmpmsg->link;
+			if (mbx->mq_head < 0)
+				mbx->mq_tail = -1;
+			tmpmsg->link = hm;
+		}
+	}
+	return (tmpmsg);
+}

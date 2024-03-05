@@ -1,0 +1,30 @@
+#include "types.h"
+#include "const.h"
+#include "config.h"
+#include "proto.h"
+#include "glo.h"
+
+/* ---------------------------------------------------------------
+	Description:
+		Set the mailbox message queueing strategy.
+--------------------------------------------------------------- */
+public int SetMbxMsgQueStrategy(hMBX hMbx, int qStrategy, int qSize)
+{
+	MBX *mbx;
+
+	if (hMbx < 0 || hMbx >= NR_MBX)
+		return (E_Arg);
+	if (qStrategy > 2)
+		return (E_Arg);
+	mbx = &mailbox[hMbx];
+	if (LockSysSemaphore(-1)) {
+		if ((mbx->owner <> GetAppHandle()) and GetAppHandle() <> 0) {
+	    UnlockSysSemaphore();
+			return (E_NotOwner);
+    }
+		mbx->mq_strategy = qStrategy;
+		mbx->mq_size = qSize;
+    UnlockSysSemaphore();
+  }
+	return (E_Ok);
+}

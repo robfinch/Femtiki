@@ -1,0 +1,42 @@
+#include "types.h"
+#include "const.h"
+#include "config.h"
+#include "proto.h"
+#include "glo.h"
+
+/* ---------------------------------------------------------------
+	Description:
+		Allocate a mailbox. The default queue strategy is to
+	queue the eight most recent messages.
+--------------------------------------------------------------- */
+public int FMTK_AllocMbx(hMBX *phMbx)
+{
+	MBX *mbx;
+
+	if (phMbx==null)
+  	return (E_Arg);
+	if (LockSysSemaphore(-1)) {
+		if (freeMBX < 0 || freeMBX >= NR_MBX) {
+	    UnlockSysSemaphore();
+			return (E_NoMoreMbx);
+    }
+		mbx = &mailbox[freeMBX];
+		freeMBX = mbx->link;
+		nMailbox--;
+    UnlockSysSemaphore();
+  }
+	*phMbx = mbx - mailbox;
+	mbx->owner = GetAppHandle();
+	mbx->tq_head = -1;
+	mbx->tq_tail = -1;
+	mbx->mq_head = -1;
+	mbx->mq_tail = -1;
+	mbx->tq_count = 0;
+	mbx->mq_count = 0;
+	mbx->mq_missed = 0;
+	mbx->mq_size = 8;
+	mbx->mq_strategy = MQS_NEWEST;
+	return (E_Ok);
+}
+
+

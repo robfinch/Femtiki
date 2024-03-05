@@ -1,0 +1,101 @@
+#include "types.h"
+#include "const.h"
+#include "config.h"
+#include "proto.h"
+#include "glo.h"
+
+/* ---------------------------------------------------------------
+	Description:
+		Wait for message. If timelimit is zero then the thread
+	will wait indefinately for a message.
+--------------------------------------------------------------- */
+
+public int FMTK_WaitMsg(register hMBX hMbx, register int *d1, register int *d2, register int *d3, register int timelimit)
+{
+	MBX *mbx;
+	MSG *msg;
+	TCB *thrd;
+	TCB *rt;
+
+	if (hMbx < 0 || hMbx >= NR_MBX)
+		return (E_Arg);
+	mbx = &mailbox[hMbx];
+	if (LockSysSemaphore(-1)) {
+  	// check for a mailbox owner which indicates the mailbox
+  	// is active.
+  	if (mbx->owner < 0 || mbx->owner >= NR_ACB) {
+ 	    UnlockSysSemaphore();
+    	return (E_NotAlloc);
+    }
+  	msg = DequeueMsg(mbx);
+    UnlockSysSemaphore();
+  }
+  // Return message right away if there is one available.
+  if (msg) {
+		if (d1)
+			*d1 = msg->d1;
+		if (d2)
+			*d2 = msg->d2;
+		if (d3)
+			*d3 = msg->d3;
+   	if (LockSysSemaphore(-1)) {
+   		FreeMsg(msg);
+	    UnlockSysSemaphore();
+    }
+		return (E_Ok);
+  }
+	//-------------------------
+	// Queue thread at mailbox
+	//-------------------------
+	if (LockSysSemaphore(-1)) {
+		thrd = GetRunningTCBPtr();
+		RemoveFromReadyList(thrd-tcbs);
+    UnlockSysSemaphore();
+  }
+	thrd->status |= TS_WAITMSG;
+	thrd->hWaitMbx = hMbx;
+	thrd->mbq_next = -1;
+	if (LockSysSemaphore(-1)) {
+		if (mbx->tq_head < 0) {
+			thrd->mbq_prev = -1;
+			mbx->tq_head = thrd-tcbs;
+			mbx->tq_tail = thrd-tcbs;
+			mbx->tq_count = 1;
+		}
+		else {
+			thrd->mbq_prev = mbx->tq_tail;
+			tcbs[mbx->tq_tail].mbq_next = thrd-tcbs;
+			mbx->tq_tail = thrd-tcbs;
+			mbx->tq_count++;
+		}
+    UnlockSysSemaphore();
+  }
+	//---------------------------
+	// Is a timeout specified ?
+	if (timelimit) {
+    asm { ; Waitmsg here; }
+  	if (LockSysSemaphore(-1)) {
+	    InsertIntoTimeoutList(thrd-tcbs, timelimit);
+	    UnlockSysSemaphore();
+    }
+  }
+  // Reschedule will cause control to pass to another thread.
+  FMTK_Reschedule();
+	// Control will return here as a result of a SendMsg or a
+	// timeout expiring
+	rt = GetRunningTCBPtr(); 
+	if (rt->msg.type == MT_NONE)
+		return (E_NoMsg);
+	// rip up the envelope
+	rt->msg.type = MT_NONE;
+	rt->msg.tgtadr = -1;
+	rt->msg.retadr = -1;
+	if (d1)
+		*d1 = rt->msg.d1;
+	if (d2)
+		*d2 = rt->msg.d2;
+	if (d3)
+		*d3 = rt->msg.d3;
+	return (E_Ok);
+}
+

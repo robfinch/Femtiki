@@ -1,0 +1,49 @@
+#include "types.h"
+#include "const.h"
+#include "config.h"
+#include "proto.h"
+#include "glo.h"
+
+/* ---------------------------------------------------------------
+	Description:
+		Free up a mailbox. When the mailbox is freed any queued
+	messages must be freed. Any queued threads must also be
+	dequeued. 
+--------------------------------------------------------------- */
+
+public int FMTK_FreeMbx(hMBX hMbx) 
+{
+	MBX *mbx;
+	MSG *msg;
+	TCB *thrd;
+	
+	if (hMbx < 0 || hMbx >= NR_MBX)
+		return (E_Arg);
+	mbx = &mailbox[hMbx];
+	if (LockSysSemaphore(-1)) {
+		if ((mbx->owner <> GetAppHandle()) and (GetAppHandle() <> 0)) {
+	    UnlockSysSemaphore();
+			return (E_NotOwner);
+    }
+		// Free up any queued messages
+		while (msg = DequeueMsg(mbx))
+			FreeMsg(msg);
+		// Send an indicator to any queued threads that the mailbox
+		// is now defunct Setting MsgPtr = null will cause any
+		// outstanding WaitMsg() to return E_NoMsg.
+		forever {
+			DequeThreadFromMbx(mbx, &thrd);
+			if (thrd == null)
+				break;
+			thrd->msg.type = MT_NONE;
+			if (thrd->status & TS_TIMEOUT)
+				RemoveFromTimeoutList(thrd-tcbs);
+			InsertIntoReadyList(thrd-tcbs);
+		}
+		mbx->link = freeMBX;
+		freeMBX = mbx-mailbox;
+		nMailbox++;
+    UnlockSysSemaphore();
+  }
+	return (E_Ok);
+}

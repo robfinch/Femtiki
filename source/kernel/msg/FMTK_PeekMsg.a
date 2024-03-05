@@ -1,0 +1,17 @@
+#include "types.h"
+#include "const.h"
+#include "config.h"
+#include "proto.h"
+#include "glo.h"
+
+// ----------------------------------------------------------------------------
+// PeekMsg()
+//     Look for a message in the queue but don't remove it from the queue.
+//     This is a convenince wrapper for CheckMsg().
+// ----------------------------------------------------------------------------
+
+int FMTK_PeekMsg(uint hMbx, int *d1, int *d2, int *d3)
+{
+  return (CheckMsg(hMbx, d1, d2, d3, 0));
+}
+

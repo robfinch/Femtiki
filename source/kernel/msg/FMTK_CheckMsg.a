@@ -1,0 +1,54 @@
+#include "types.h"
+#include "const.h"
+#include "config.h"
+#include "proto.h"
+#include "glo.h"
+
+/* ---------------------------------------------------------------
+	Description:
+		Check for message at mailbox. If no message is
+	available return immediately to the caller (CheckMsg() is
+	non blocking). Optionally removes the message from the
+	mailbox.
+--------------------------------------------------------------- */
+
+int FMTK_CheckMsg(hMBX hMbx, int *d1, int *d2, int *d3, int qrmv)
+{
+	MBX *mbx;
+	MSG *msg;
+
+	if (hMbx < 0 || hMbx >= NR_MBX)
+		return (E_Arg);
+	mbx = &mailbox[hMbx];
+ 	if (LockSysSemaphore(-1)) {
+  	// check for a mailbox owner which indicates the mailbox
+  	// is active.
+  	if (mbx->owner < 0 || mbx->owner >= NR_ACB) {
+	    UnlockSysSemaphore();
+  		return (E_NotAlloc);
+    }
+  	if (qrmv == true)
+  		msg = DequeueMsg(mbx);
+  	else
+  		msg = mbx->mq_head;
+    UnlockSysSemaphore();
+  }
+	if (msg == null)
+		return (E_NoMsg);
+ 	if (LockSysSemaphore(-1)) {
+		if (d1)
+			*d1 = msg->d1;
+		if (d2)
+			*d2 = msg->d2;
+		if (d3)
+			*d3 = msg->d3;
+    UnlockSysSemaphore();
+	}
+	if (qrmv == true) {
+   	if (LockSysSemaphore(-1)) {
+   		FreeMsg(msg);
+	    UnlockSysSemaphore();
+    }
+	}
+	return (E_Ok);
+}

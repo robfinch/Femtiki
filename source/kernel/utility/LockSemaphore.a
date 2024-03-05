@@ -1,0 +1,64 @@
+// ============================================================================
+//        __
+//   \\__/ o\    (C) 2012-2024  Robert Finch, Waterloo
+//    \  __ /    All rights reserved.
+//     \/_//     robfinch<remove>@finitron.ca
+//       ||
+//
+// LockSemaphore.c
+//
+// BSD 3-Clause License
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice, this
+//    list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its
+//    contributors may be used to endorse or promote products derived from
+//    this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+//                                                                          
+// ============================================================================
+
+pascal int LockSemaphore(int *sema, int retries)
+{
+  __asm {
+	ldi	a0,128
+.0001:
+  ble r19,r0,.0004
+  sub r19,r19,#1  
+	csrrw	r4,#$10,r0			// get thread register
+      lwr  	r3,[r18]
+      beq     r3,r4,.0002			// test if already locked by this task
+      bne     r3,r0,.0001         // branch if not free
+      //chk     r3,r0,#256         ; check if locked by a valid task
+  .0003:
+	sc		r1,$FFDC0600
+	xor		r1,r1,#$80
+      swc     r4,[r18]            // try and lock it
+      sync                        // cr0 needs time to update???
+	csrrd   r3,#$00C,r0			// status is bit 0 of csr $00C
+	bbc     r3,#0,.0001         // lock failed, go try again
+  .0002:
+      ldi     r1,#1
+      bra     .0005
+.0004:
+	ldi	a0,0
+.0005:
+  }
+}

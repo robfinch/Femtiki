@@ -1,0 +1,118 @@
+// ============================================================================
+//        __
+//   \\__/ o\    (C) 2012-2024  Robert Finch, Waterloo
+//    \  __ /    All rights reserved.
+//     \/_//     robfinch<remove>@finitron.ca
+//       ||
+//
+//
+// BSD 3-Clause License
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice, this
+//    list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its
+//    contributors may be used to endorse or promote products derived from
+//    this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+//
+// ============================================================================
+
+#include "config.h"
+#include "const.h"
+#include "types.h"
+#include "proto.h"
+#include "glo.h"
+#include "thread.h"
+
+// ----------------------------------------------------------------------------
+// Returns:
+//	hTCB	positive number handle of thread started,
+//			or negative number error code
+// ----------------------------------------------------------------------------
+
+int FMTK_StartThread(
+	byte *StartAddr,
+	int stacksize,
+	int *pStack,
+	int parm,
+	int info
+)
+{
+  hTCB ht;
+  TCB *t;
+  int nn;
+  __int32 affinity;
+	hACB hApp;
+	__int8 priority;
+
+	// LED notify
+	LEDs(60);
+
+	// These fields extracted from a single parameter as there can be only
+	// five register values passed to the function.	
+  affinity = info & 0xffffffffL;
+	hApp = (info >> 32) & 0xffffL;
+	priority = (info >> 48) & 0xff;
+
+  if (LockSysSemaphore(100000)) {
+  	LEDs(61);
+    ht = freeTCB;
+    if (ht < 0 || ht >= NR_TCB) {
+      UnlockSysSemaphore();
+    	return (E_NoMoreTCBs);
+    }
+    freeTCB = tcbs[ht].next;
+    UnlockSysSemaphore();
+  }
+	else {
+		LEDs(69);
+		return (E_Busy);
+	}
+	LEDs(62);
+  t = &tcbs[ht];
+  t->affinity = affinity;
+  t->priority = priority;
+  t->hApp = hApp;
+  // Insert into the job's list of tasks.
+  LEDs(63);
+  tcbs[ht].acbnext = ACBPtrs[hApp]->thrd;
+  ACBPtrs[hApp]->thrd = ht;
+  t->regs[1] = parm;
+  t->regs[28] = FMTK_ExitThread;
+  t->regs[31] = (int)pStack + stacksize - 2048;
+  t->bios_stack = (int)pStack + stacksize - 8;
+  t->sys_stack = (int)pStack + stacksize - 1024;
+  t->epc = StartAddr;
+  t->cr0 = 0x140000000L;				// enable data cache and branch predictor
+  t->startTick = GetTick();
+  t->endTick = GetTick();
+  t->ticks = 0;
+  t->exception = 0;
+  LEDs(65);
+  if (LockSysSemaphore(100000)) {
+    InsertIntoReadyList(ht);
+    UnlockSysSemaphore();
+  }
+	else {
+		return (E_Busy);
+	}
+	LEDs(67);
+  return (ht);
+}

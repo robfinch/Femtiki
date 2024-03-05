@@ -1,0 +1,21 @@
+#include "types.h"
+#include "const.h"
+#include "config.h"
+#include "proto.h"
+#include "glo.h"
+
+/* ---------------------------------------------------------------
+	Description:
+		Freeup message and add back to free list. Must be called
+	with the system semaphore locked.
+--------------------------------------------------------------- */
+
+pascal void FreeMsg(MSG *msg)
+{
+  msg->type = MT_FREE;
+  msg->retadr = -1;
+  msg->tgtadr = -1;
+	msg->link = freeMSG;
+	freeMSG = msg - message;
+	nMsgBlk++;
+}
