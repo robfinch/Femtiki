@@ -455,6 +455,7 @@ TCBPointerToHandle:
 ;				}
 
 DecrementTimeout:
+0005:
 	ldb		TimeoutList
 	beq		0001f
 	bmi		0001f
@@ -471,7 +472,8 @@ DecrementTimeout:
 	bne		0003f
 0004:
 	bsr		PopTimeoutList
-	bra		InsertIntoReadyQueue
+	bsr		InsertIntoReadyQueue
+	bra		0005b
 0003:
 	sec
 	ldd		TCBTimeout+2,x
