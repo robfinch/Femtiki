@@ -1,0 +1,15 @@
+.set MAX_TID,4000
+.set NR_TCB,4000
+.set NTASK,4000    		# number of tasks allowed
+.set LOG_TCBSZ,10
+.set LOG_PGSZ,14
+.set LOG_ACBSZ,14
+.set OSPAGES,16				# pages of memory dedicated to OS
+.set PAGESZ,16384  		# size of a page of memory
+.set MEMSZ,65536   		# pages
+.set MBX_BLOCKPTR_BUFSZ,8 	# number of block pointer entries
+.set NR_MSG,32000			# number of messages available
+.set NR_MBX,16000			# number of mailboxes
+
+
+

@@ -1,0 +1,57 @@
+.set PageManagementTable,0
+.set acbs,PageManagementTable+MEMSZ*PMT_SIZE
+.set acbs_end,acbs+ACB_SIZE*NR_ACB
+.set tcbs,acbs_end
+.set tcbs_end,tcbs+NR_TCB*1024
+.set messages,tcbs_end
+.set messages_end,messages+NR_MSG*MSG_SIZE
+PAMShareCounts	EQU	$000000	; one byte for each physical page of memory
+tcbs						EQU	$010000	; 4095*192 = 768k
+tcbs_end				EQU	$0D0000
+messages				EQU	$0D0000	; 32*8192 (680*16=21760 messages)
+messages_end		EQU	$110000
+mailboxes				EQU	$110000
+mailboxes_end		EQU	$128000	; 12*8192 (816*12=9792 mailboxes)
+
+
+sys_stacks			EQU	$DF0000
+.set FemtikiVars,$FFFF8020
+.set PAMLastAllocate2,FemtikiVars
+.set RunningAID,FemtikiVars+4
+.set RunningID,RunningAID+4
+.set ACBPtrs,RunningID+4
+.set MidStackBottoms,ACBPtrs+32*4
+.set FemtikiInited,MidStackBottoms+4
+.set missed_ticks,FemtikiInited+4
+.set IOFocusList,missed_ticks+4
+.set IOFocusID,IOFocusList+1
+.set iof_switch,IOFocusID+1
+nMessage			EQU		$FFFFFC0AE
+nMailbox			EQU		$FFFFFC0B0
+FreeACB				EQU		$FFFFFC0B2
+.set FreeTCB,FreeACB+2
+.set FreeMSG,FreeTCB+2
+.set FreeMBX,FreeMSG+2
+TimeoutList		EQU		$FFFFFC0B8
+hKeybdMbx			EQU		$FFFFFC0BA
+hFocusSwitchMbx		EQU		$FFFFFC0BC
+BIOS_RespMbx	EQU		$FFFFFC0BE
+hasUltraHighPriorityTasks	EQU		$FFFFFC0C0
+im_save				EQU		$FFFFFC0C2
+sp_tmp				EQU		$FFFFFC0C4
+readyQ				EQU		$FFFFFC0C8
+readyQTail		EQU		$FFFFFC0D0
+NPAGES				EQU		$FFFFFC0D8
+syspages			EQU		$FFFFFC0DA
+mmu_FreeMaps	EQU		$FFFFFC0E0
+mmu_entries		EQU		$FFFFFC100
+freelist			EQU		$FFFFFC102
+hSearchMap		EQU		$FFFFFC104
+OSActive			EQU		$FFFFFC105
+FemtikiVars_end	EQU	$FFFFFC120
+
+;gc_stack		rmb		512
+;gc_pc				fcdw		0
+;gc_omapno		fcw			0
+;gc_mapno		fcw			0
+;gc_dl				fcw			0

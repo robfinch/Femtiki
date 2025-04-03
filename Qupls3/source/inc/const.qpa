@@ -1,0 +1,82 @@
+# ============================================================================
+#        __
+#   \\__/ o\    (C) 2020-2025  Robert Finch, Waterloo
+#    \  __ /    All rights reserved.
+#     \/_//     robfinch<remove>@finitron.ca
+#       ||
+#  
+#
+# BSD 3-Clause License
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# ============================================================================
+
+.set TS_NONE,0
+.set TS_READY,1
+.set TS_DEAD,2
+.set TS_MSGRDY,4
+.set TS_WAITMSG,8
+.set TS_TIMEOUT,16
+.set TS_PREEMPT,32
+.set TS_FREE,64
+.set TS_RUNNING,128
+
+.set TSC_NONE,0
+.set TSC_ALLOCTCB,1
+.set TSC_FREETCB,2
+.set TSC_SLEEP,3
+
+# error codes
+.set E_Ok,00
+.set E_Arg,01
+.set E_Func,02
+.set E_BadMbx,4
+.set E_QueFull,5
+.set E_NoThread,6
+.set E_NotAlloc,7
+.set E_NoMsg,8
+.set E_Timeout,10
+.set E_BadAlarm,11
+.set E_NotOwner,12
+.set E_QueStrategy,13
+.set E_Busy,14
+.set E_DCBInUse,19
+# Device driver errors
+.set E_BadDevNum,20
+.set E_NoDev,21
+.set E_BadDevOp,22
+.set E_ReadError,23
+.set E_WriteError,24
+.set E_BadBlockNum,25
+.set E_TooManyBlocks,26
+
+# resource errors
+.set E_NoMoreMbx,40
+.set E_NoMoreMsgBlks,41
+.set E_NoMoreAlarmBlks,44
+.set E_NoMoreTCBs,45
+.set E_NoMem,46
+

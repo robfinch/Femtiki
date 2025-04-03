@@ -1,0 +1,262 @@
+# ============================================================================
+#        __
+#   \\__/ o\    (C) 2020-2025  Robert Finch, Stratford
+#    \  __ /    All rights reserved.
+#     \/_//     robfinch<remove>@finitron.ca
+#       ||
+#  
+#
+# BSD 3-Clause License
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# ============================================================================
+
+.set OBJMagic,0
+.set OBJSize,4
+.set OBJTypenum,8
+.set OBJID,12
+.set OBJStat,16    		# WHITE, GREY, BLACK
+.set OBJScavcnt,20    # scavange count
+.set OBJOwningMap,24
+.set OBJCollectionIndex,28
+.set OBJUsedInMap,32  # used in map
+.set OBJFWAddr,36    	# forwarding address
+.set OBJFinalizer,40
+.set OBJ_SIZE,44
+
+# Task Control Block
+.set TCBIntRegs,000    # integer register set storage area
+# Condition Registers
+.set TCBxCR0,4
+.set TCBxCR1,5
+.set TCBxCR2,6
+.set TCBxCR3,7
+.set TCBxCR4,8
+.set TCBxCR5,9
+.set TCBxCR6,10
+.set TCBxCR7,11
+# Branch Registers
+.set TCBxBR1,16
+.set TCBxBR2,24
+.set TCBxBR3,32
+.set TCBxBR4,40
+.set TCBxBR5,48
+.set TCBxBR6,56
+# Fixed point registers
+.set TCBxA0,64
+.set TCBxA1,72
+.set TCBxA2,80
+.set TCBxA3,88
+.set TCBxA4,96
+.set TCBxA5,104
+.set TCBxA6,112
+.set TCBxA7,120
+.set TCBxT0,128
+.set TCBxT1,136
+.set TCBxT2,144
+.set TCBxT3,152
+.set TCBxT4,160
+.set TCBxT5,168
+.set TCBxT6,176
+.set TCBxT7,184
+.set TCBxT8,192
+.set TCBxT9,200
+.set TCBxS0,208
+.set TCBxS1,216
+.set TCBxS2,224
+.set TCBxS3,232
+.set TCBxS4,240
+.set TCBxS5,248
+.set TCBxS6,256
+.set TCBxS7,264
+.set TCBxS8,272
+.set TCBxS9,280
+.set TCBxGP,288
+.set TCBxFP,296
+# Stack pointers
+.set TCBxUSP,304
+.set TCBxSSP,312
+.set TCBxHSP,320
+# Loop Counter
+.set TCBxLC,328
+# Floating-point registers
+.set TCBxF0,336
+.set TCBxF1,344
+.set TCBxF2,352
+.set TCBxF3,360
+.set TCBxF4,368
+.set TCBxF5,376
+.set TCBxF6,384
+.set TCBxF7,392
+.set TCBxF8,400
+.set TCBxF9,408
+.set TCBxF10,416
+.set TCBxF11,424
+.set TCBxF12,432
+.set TCBxF13,440
+.set TCBxF14,448
+.set TCBxF15,456
+.set TCBxF16,464
+.set TCBxF17,472
+.set TCBxF18,480
+.set TCBxF19,488
+.set TCBxF20,496
+.set TCBxF21,504
+.set TCBxF22,512
+.set TCBxF23,520
+.set TCBxF24,528
+.set TCBxF25,536
+.set TCBxF26,544
+.set TCBxF27,552
+.set TCBxF28,560
+.set TCBxF29,568
+.set TCBxF30,576
+.set TCBxF31,584
+.set TCBxPC,592
+.set TCBxXH,600
+# Status registers
+.set TCBxSR,664
+.set TCBxFPSR,672
+# OS
+.set TCBStatus,700
+.set TCBPriority,701
+.set TCBWaitMbx,702
+.set TCBHasFocus,704
+.set TCBStackBot,708
+.set TCBMsgD1,716
+.set TCBMsgD2,724
+.set TCBMsgD3,732
+.set TCBStartTick,740
+.set TCBEndTick,748
+.set TCBTicks,756
+.set TCBException,764
+.set TCBNext,772
+.set TCBPrev,780
+.set TCBAffinity,788
+.set TCBTimeout,796
+.set TCBtid,804
+.set TCBmid,808
+.set TCBappid,812
+.set TCBOpMode,816
+.set TCBMbxNext,824
+.set TCBMbxPrev,832
+.set TCBTaskNum,840
+.set TCBAcbNext,848
+.set TCBAcbPrev,852
+.set TCBTsCmd,856
+.set TCBTsResp,858
+.set TCBTsCmdParm,864
+.set TCBhMailboxes,872	# room for 10 mailbox handles
+.set TCBName,900				# room for 32 16-bit characters
+.set TCB_SIZE,1024
+
+# Application Control Block
+.set ACBObject,0
+.set ACBNumTask,66
+.set ACBStackSize,72
+.set ACBpData,80
+.set ACBDataSize,88
+.set ACBpUIData,96
+.set ACBUIDataSize,104
+.set ACBGCRoots,112
+.set ACBGCRootCnt,120
+.set ACBGCNdx,128
+.set ACBGCMarkingQue,136
+.set ACBGCMarkingQueFull,144
+.set ACBGCMarkingQueEmpty,145
+.set ACBGCOverflow,146
+.set ACBpCode,152
+.set ACBObjectList,160
+.set ACBGarbageList,168
+.set ACBHeap,176   				# 640+ bytes for heap object info
+.set ACBiofNext,824
+.set ACBiofPrev,832
+.set ACBUserName,840   		# 2 byte index of string in string area
+.set ACBPath,842   				# 2 byte index of string in string area
+.set ACBExitRunFile,844 	# 2 byte index of string in string area
+.set ACBCommandLine,846 	# 2 byte index of string in string area
+.set ACBpVidMem,848
+.set ACBpVirtVidMem,856
+.set ACBVideoRows,864
+.set ACBVideoCols,865
+.set ACBCursorRow,866
+.set ACBCursorCol,867
+.set ACBNormAttr,872
+.set ACBKeyState1,880
+.set ACBKeyState2,882
+.set ACBKeybdWaitFlag,884
+.set ACBKeybdHead,886
+.set ACBKeybdTail,887
+.set ACBKeybdBuffer,888
+.set ACBnumber,944
+.set ACBNext,952
+.set ACBTaskList,960
+.set ACBHasFocus,962
+.set ACBmid,964
+.set ACBStatus,966
+.set ACBTemplates,968   # 256 * 8 bytes reserved for template pointers
+.set ACBPad,3016
+.set ACBStrings,3072  		# start of 1kB string area
+.set ACBVTextScreen,8192	# 8kB Text screen
+.set ACBEnd,16384
+.set ACB_SIZE,16384
+
+# Application startup record
+.set ASRPageSize,0
+.set ASRPriority,1
+.set ASRRegset,2
+.set ASRmid,3
+.set ASRAffinity,4
+.set ASRCodeSize,8
+.set ASRDataSize,16
+.set ASRUIDataSize,24
+.set ASRHeapSize,32
+.set ASRStackSize,40
+.set ASRpCode,48
+.set ASRpData,56
+.set ASRpUIData,64
+.set ASR_SIZE,72
+
+.set MBX_OWNER,0	# tid of owning task
+#MBX_WTIDS			equ		4		; tasks waiting at mailbox
+.set MBX_LINK,4
+.set MBX_TQHEAD,8	# link field for free list shared with task queue head
+.set MBX_TQTAIL,12
+.set MBX_MQHEAD,16
+.set MBX_MQTAIL,20
+.set MBX_SIZE,24
+
+.set MSG_LINK,0
+.set MSG_RETADR,4
+.set MSG_TGTADR,8
+.set MSG_TYPE,12
+.set MSG_D1,16
+.set MSG_D2,20
+.set MSG_D3,24
+.set MSG_SIZE,28
+
+.set PMT_SIZE,64
+
