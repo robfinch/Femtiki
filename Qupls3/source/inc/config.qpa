@@ -1,15 +1,54 @@
-.set MAX_TID,4000
-.set NR_TCB,4000
-.set NTASK,4000    		# number of tasks allowed
-.set LOG_TCBSZ,10
-.set LOG_PGSZ,14
-.set LOG_ACBSZ,14
-.set OSPAGES,16				# pages of memory dedicated to OS
-.set PAGESZ,16384  		# size of a page of memory
-.set MEMSZ,65536   		# pages
-.set MBX_BLOCKPTR_BUFSZ,8 	# number of block pointer entries
-.set NR_MSG,32000			# number of messages available
-.set NR_MBX,16000			# number of mailboxes
+# ============================================================================
+#        __
+#   \\__/ o\    (C) 2020-2025  Robert Finch, Waterloo
+#    \  __ /    All rights reserved.
+#     \/_//     robfinch<remove>@finitron.ca
+#       ||
+#  
+#
+# BSD 3-Clause License
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# ============================================================================
 
+# These constants are used in the code.
+# They are not used by the variable declarations. The varible declarations
+# will have to updated to match these constants.
+
+.set MAX_TID,4095
+.set NR_TCB,4095
+.set NTASK,4095    		# number of tasks allowed
+.set LOG_TCBSZ,10			# TCB size in bits of address space
+.set LOG_PGSZ,14			# MMU page size
+.set LOG_ACBSZ,14			# ACB size in bits of address space
+.set OSPAGES,512			# pages of memory dedicated to OS
+.set PAGESZ,16384  		# size of a page of memory
+.set MEMSZ,65536   		# number of pages of memory
+.set MBX_BLOCKPTR_BUFSZ,8 	# number of block pointer entries
+.set NR_MSG,32768			# number of messages available
+.set NR_MBX,16384			# number of mailboxes
 
 

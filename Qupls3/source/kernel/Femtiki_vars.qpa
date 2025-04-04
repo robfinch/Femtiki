@@ -1,54 +1,87 @@
-.set PageManagementTable,0
-.set acbs,PageManagementTable+MEMSZ*PMT_SIZE
-.set acbs_end,acbs+ACB_SIZE*NR_ACB
-.set tcbs,acbs_end
-.set tcbs_end,tcbs+NR_TCB*1024
-.set messages,tcbs_end
-.set messages_end,messages+NR_MSG*MSG_SIZE
-PAMShareCounts	EQU	$000000	; one byte for each physical page of memory
-tcbs						EQU	$010000	; 4095*192 = 768k
-tcbs_end				EQU	$0D0000
-messages				EQU	$0D0000	; 32*8192 (680*16=21760 messages)
-messages_end		EQU	$110000
-mailboxes				EQU	$110000
-mailboxes_end		EQU	$128000	; 12*8192 (816*12=9792 mailboxes)
+# ============================================================================
+#        __
+#   \\__/ o\    (C) 2020-2025  Robert Finch, Waterloo
+#    \  __ /    All rights reserved.
+#     \/_//     robfinch<remove>@finitron.ca
+#       ||
+#  
+#
+# BSD 3-Clause License
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# ============================================================================
 
+# These OS structures and variables are statically allocatedfor now until the
+# the OS is in a better working state.
 
-sys_stacks			EQU	$DF0000
-.set FemtikiVars,$FFFF8020
-.set PAMLastAllocate2,FemtikiVars
-.set RunningAID,FemtikiVars+4
-.set RunningID,RunningAID+4
-.set ACBPtrs,RunningID+4
-.set MidStackBottoms,ACBPtrs+32*4
-.set FemtikiInited,MidStackBottoms+4
-.set missed_ticks,FemtikiInited+4
-.set IOFocusList,missed_ticks+4
-.set IOFocusID,IOFocusList+1
-.set iof_switch,IOFocusID+1
-nMessage			EQU		$FFFFFC0AE
-nMailbox			EQU		$FFFFFC0B0
-FreeACB				EQU		$FFFFFC0B2
-.set FreeTCB,FreeACB+2
-.set FreeMSG,FreeTCB+2
-.set FreeMBX,FreeMSG+2
-TimeoutList		EQU		$FFFFFC0B8
-hKeybdMbx			EQU		$FFFFFC0BA
-hFocusSwitchMbx		EQU		$FFFFFC0BC
-BIOS_RespMbx	EQU		$FFFFFC0BE
-hasUltraHighPriorityTasks	EQU		$FFFFFC0C0
-im_save				EQU		$FFFFFC0C2
-sp_tmp				EQU		$FFFFFC0C4
-readyQ				EQU		$FFFFFC0C8
-readyQTail		EQU		$FFFFFC0D0
-NPAGES				EQU		$FFFFFC0D8
-syspages			EQU		$FFFFFC0DA
-mmu_FreeMaps	EQU		$FFFFFC0E0
-mmu_entries		EQU		$FFFFFC100
-freelist			EQU		$FFFFFC102
-hSearchMap		EQU		$FFFFFC104
-OSActive			EQU		$FFFFFC105
-FemtikiVars_end	EQU	$FFFFFC120
+.set PageManagementTable,0x00004000		# 65536 16B PMTEs
+.set acbs,0x00104000
+.set acbs_end,0x00184000			# 32 16kB ACBs
+.set tcbs,0x00184000
+.set tcbs_end,0x00584000			# 4096 1kB TCBs
+.set messages,0x00584000
+.set messages_end,0x00684000	# 32768 32B MSGs
+.set mailboxes,0x00684000
+.set mailboxes_end,0x006E4000	# 16384 34B MBXs
+
+.set sys_stacks,0xFFFB0000
+.set FemtikiVars,0xFFF80020
+.set PAMLastAllocate2,0xFFF80020
+.set RunningAID,0xFFF80024
+.set RunningID,0xFFF80028
+.set ACBPtrs,0xFFF8002C
+.set MidStackBottoms,0xFFF800AC
+.set FemtikiInited,0xFFF800B0
+.set missed_ticks,0xFFF800B4
+.set IOFocusList,0xFFF800B8
+.set IOFocusID,0xFFF800B9
+.set iof_switch,0xFFF800BA
+.set nMessage,0xFFF800BC
+.set nMailbox,0xFFF800C0
+.set FreeACB,0xFFF800C2
+.set FreeTCB,0xFFF800C4
+.set FreeMSG,0xFFF800C6
+.set FreeMBX,0xFFF800C8
+.set TimeoutList,0xFFF800CC
+.set hKeybdMbx,0xFFF800D0
+.set hFocusSwitchMbx,0xFFF800D2
+.set BIOS_RespMbx,0xFFF800D4
+.set hasUltraHighPriorityTasks,0xFFF800D8
+.set im_save,0xFFF800DC
+.set sp_tmp,0xFFF800E0
+.set readyQ,0xFFF800E4
+.set readyQTail,0xFFF800E6
+.set NPAGES,0xFFF800E8
+.set syspages,0xFFF800EC
+.set mmu_FreeMaps,0xFFF800F0
+.set mmu_entries,0xFFF800F4
+.set freelist,0xFFF800F8
+.set hSearchMap,0xFFF800FC
+.set OSActive,0xFFF80100
+.set FemtikiVars_end,0xFFF80104
 
 ;gc_stack		rmb		512
 ;gc_pc				fcdw		0

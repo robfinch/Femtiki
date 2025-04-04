@@ -34,6 +34,7 @@
 #
 # ============================================================================
 
+# task states
 .set TS_NONE,0
 .set TS_READY,1
 .set TS_DEAD,2
@@ -41,9 +42,9 @@
 .set TS_WAITMSG,8
 .set TS_TIMEOUT,16
 .set TS_PREEMPT,32
-.set TS_FREE,64
 .set TS_RUNNING,128
 
+# Comamnds to the timer ISR
 .set TSC_NONE,0
 .set TSC_ALLOCTCB,1
 .set TSC_FREETCB,2
@@ -80,3 +81,6 @@
 .set E_NoMoreTCBs,45
 .set E_NoMem,46
 
+# codes for CSR registers in the CPU
+.set M_SR,0x3004
+.set M_SEMA,0x300C
