@@ -1,0 +1,253 @@
+# ============================================================================
+#        __
+#   \\__/ o\    (C) 2020-2025  Robert Finch, Waterloo
+#    \  __ /    All rights reserved.
+#     \/_//     robfinch<remove>@finitron.ca
+#       ||
+#  
+#
+# BSD 3-Clause License
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# ============================================================================
+
+.set MMU_PFA,0xFFF40000
+.set MMU_PTBR,0xFFF40028
+.set MMU_VADR,0xFFF40040
+.set MMU_PADR,0xFFF40050
+.set MMU_PADRV,0xFFF40060
+
+# ------------------------------------------------------------------------------
+# Clear a page of memory
+#
+# Parameters:
+#		a0 = pointer to page
+# Returns:
+#		none
+# ------------------------------------------------------------------------------
+
+_ClearPage:
+	push 0xc,0
+	move a1,a0
+	add a2,a0,PGSIZE
+.0001:
+	store r0,[a1]
+	add a1,a1,4
+	cmpa cr0,a1,a2
+	blt .0001
+	pop 0xc,0
+	blr
+
+# ------------------------------------------------------------------------------
+# Search for a memory page that is not used yet. Mark it as in use and return
+# the address. The search proceeds 32-bits at a time.
+#
+# Parameters:
+#		none
+# Returns:
+#		a0 = address of page (zero if no page available)
+#		cr0.eq set if no page found, zero otherwise
+# ------------------------------------------------------------------------------
+
+_FindFreePage:
+	push 0x3c,0			# save a1 to a4
+	loadi a0,_PAM
+	loadi a1,0
+	# search the PAM 32-bits at a time for a free page
+.0002:
+	load a2,[a0]		# get alloc status
+	cntlo a3,a2			# find the first zero
+	cmp cr0,a3,32		# 32 1's mean all pages in group allocated
+	bne cr0,.0001
+	add a0,a0,4			# move to next group
+	cmpa cr0,a0,_PAMend	# end of table?
+	blt cr0,.0002
+	loadi. a0,0			# return zero if no pages available
+	pop 0x3c,0
+	blr
+	# Here there was a page available
+.0001:
+	subf a3,a3,31		# a3 was 1 to 31
+	sll a4,1,a3
+	or a2,a2,a4			# set bit
+	store a2,[a0]		# update PAM, mark page used
+	sub a0,a0,_PAM	# a0 = tetra index into PAM
+	sll a0,a0,5			# 32 bits per entry
+	add a0,a0,a3		# add in bit number, a0 = page number
+	sll a0,a0,4			# size of PMT entry
+	add a0,a0,_PMT
+	stw 1,4[a0]			# set share count to 1
+	stw 7,[a0]			# set acr = user, rwx
+	sub a0,a0,_PMT
+	sll. a0,a0,LOG_PGSZ-4		# convert to address
+	pop 0x3c,0
+	blr
+
+
+# ------------------------------------------------------------------------------
+# Gets the address for the page table entry given the virtual address. Walks
+# the page table. Currently assumes a two-level page table.
+#
+# Side Effects:
+# 	Calling this routine may cause a page fault if the address cannot be
+#	translated.
+#
+# Parameters:
+#		a0 = virtual address to translate
+# Returns:
+#		a0 = physical address
+# ------------------------------------------------------------------------------
+
+_GetPageTableEntryAddress:
+	push 0xfc,0
+.0001:
+	loadi a5,8					# maximum numober of levels of page tables (limits looping)
+	load a1,MMU_PTBR		# a1 = address of page table
+	srl a2,a0,26				# a2 = index into root page table
+	loada a6,[a1+a2*4]	# a6 = PTE address
+	load. a3,[a6]				# Get the PTE
+	bgt cr0,.0002				# check valid bit (bit 31)
+.0003:
+	add. a5,a5,-1
+	ble cr0,.notFound
+	srl a4,a3,29				# Extra PTE type bits
+	and a4,a4,3
+	cmp cr0,a4,2
+	bne cr0,.0004
+	# Type 2 PTE = PTP
+	and a4,a3,0x1FFFFFFF	# Extract PPN
+	sll a4,a4,LOG_PGSZ		# Turn into an address
+	srl a2,a0,14					# extract vadr bits 14 to 25
+	and a2,a2,0xFFF				# convert to index into page
+	sll a2,a2,2						# convert index to page offset
+	or a2,a2,a4						# a2 = pointer to entry now
+	load a3,[a2]					# Load the PTE
+	move a6,a2						# a6 = PTE address
+	b .0003
+	# Type 1 PTE
+.0004:
+	move a0,a6
+	pop 0xfc,0
+	blr
+	# invalid PTE? Assign a page.
+.0002:
+	loadi a0,-1
+	bl LockPMTSemaphore
+	bl _FindFreePage
+	macUnlockPMTSemaphore
+	cmp cr0,a0,0
+	beq cr0,.0005
+	bl _ClearPage
+	# set the PTP to point to the page
+	srl a0,a0,LOG_PGSZ
+	or a3,a0,0xC0000000	# set valid bit, and type 2 page
+	store a3,[a6]				# update the page table
+	b .0001
+.0005:
+	loadi a0,0
+	pop 0xfc,0
+	blr
+
+# ------------------------------------------------------------------------------
+# Page fault handler. Triggered when there is no translation for a virtual
+# address. Allocates a page of memory an puts an entry in the page table for it.
+# If the PTP was invalid, then a page is allocated for the page table it points
+# to and the PTP entry updated in the page table.
+#
+# Side Effects:
+#		Page table is updated.
+# Modifies:
+#		none
+# Parameters:
+#		none - it is an ISR
+# Returns:
+#		none - it is an ISR
+# ------------------------------------------------------------------------------
+
+_PageFaultHandlerISR:	
+	push br1
+	push 0x3fe,0				# push a0 to a7, t0
+	# search the PMT for a free page
+	loadi a0,-1
+	bl LockPMTSemaphore
+	bl _FindFreePage
+	bne cr0,.0001
+	# Here there are no more free pages
+	macUnlockPMTSemaphore
+	# Here a free page was found
+.0001:
+	macUnlockPMTSemaphore
+	bl _ClearPage
+	# Should add the base address of the memory from the region table
+	loadi a5,8					# maximum numober of levels of page tables (limits looping)
+	load a1,MMU_PTBR		# a1 = address of page table
+	load t0,MMU_PFA			# t0 = fault address (virtual address)
+	srl a2,t0,26				# a2 = index into root page table
+	loada a6,[a1+a2*4]	# a6 = PTE address
+	load. a3,[a6]				# Get the PTE
+	bgt cr0,.0002				# check valid bit (bit 31)
+.0003:
+	srl a4,a3,29				# Extra PTE type bits
+	and a4,a4,3
+	cmp cr0,a4,2
+	bne cr0,.0002
+.0004:
+	and a4,a3,0x1FFFFFFF	# Extract PPN
+	sll a4,a4,LOG_PGSZ		# Turn into an address
+	srl a2,t0,14					# extract vadr bits 14 to 25
+	and a2,a2,0xFFF				# convert to index into page
+	sll a2,a2,2						# convert index to page offset
+	or a6,a2,a4						# a6 = pointer to entry now
+	# set the PTE to point to the page
+	srl a0,a0,LOG_PGSZ
+	and a0,a0,0x1FFF		# Keep only low order bits of page number
+	or a0,a0,0x8000E000	# set valid bit, and type 0 page, user, rwx=7
+	store a0,[a6]				# update the page table
+	pop 0x3fe,0
+	pop br1
+	rfi
+	# Here the PTP was invalid, so allocate a new page table and set PTP
+.0002:
+	loadi a0,-1
+	bl LockPMTSemaphore
+	bl _FindFreePage
+	macUnlockPMTSemaphore
+	cmp cr0,a0,0
+	beq cr0,.0005
+	bl _ClearPage
+	# set the PTP to point to the page
+	srl a0,a0,LOG_PGSZ
+	or a3,a0,0xC0000000	# set valid bit, and type 2 page
+	store a3,[a6]				# update the page table
+	b .0004
+	# Here there was no memory available
+.0005:
+	pop 0x3fe,0
+	pop br1
+	rfi
+	
+
+		

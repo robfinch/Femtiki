@@ -26,14 +26,14 @@
 #include "../inc/errno.h"
 #include "./kernel/types.h"
 
-// There are 1024 pages in each map. In the normal 8k page size that means a max of
-// 8Mib of memory for an app. Since there is 512MB ram in the system that equates
-// to 65536 x 8k pages.
-// However the last 144kB (18 pages) are reserved for memory management software.
 #define NPAGES	65536
 #define CARD_MEMORY		0xFFFFFFFFFFCE0000
 #define IPT_MMU				0xFFFFFFFFFFDCD000
 #define IPT
+#define MMU				0xFFFFFFFFFFF40000
+#define MMU_VADR	0xFFFFFFFFFFF4FF40
+#define MMU_PADR	0xFFFFFFFFFFF4FF50
+#define MMU_PADRV 0xFFFFFFFFFFF4FF60
 
 #define NULL    (void *)0
 
@@ -53,10 +53,12 @@ void puthexnum(int num, int wid, int ul, char padchar);
 void putnum(int num, int wid, int sepchar, int padchar);
 extern void DBGHideCursor(int hide);
 extern void* memsetT(void* ptr, __int32 c, size_t n);
+extern __int8* FindFreePage();
+extern unsigned __int32* GetPageTableEntryAddress(unsigned __int32* virtadr);
 
 //unsigned __int32 *mmu_entries;
 extern unsigned __int32* page_table;
-extern PMTE pmt[NPAGES];
+extern PMTE PageManagementTable[NPAGES];
 extern byte *brks[512];
 extern unsigned __int32 pebble[512];
 
@@ -158,59 +160,39 @@ void init_memory_management()
 	// reserved for the video frame buffer. This also allows a failed
 	// allocation to return 0.
 	DBGDisplayChar('A');
-	mmu_key = RTCBuf[0];	
-	memsetT(brks,16777216,512);
 	sys_pages_available = NPAGES;
   
   // Allocate 16MB to the OS
-  osmem = pt_alloc(0,16777215,7);
+  osmem = pt_alloc(16777215,7);
 	DBGDisplayChar('a');
 }
 
 // ----------------------------------------------------------------------------
-// Allocate a single page.
-// 
 // ----------------------------------------------------------------------------
 
-static void pt_alloc_page(unsigned int pbl, byte *vadr, int acr, int last_page)
+unsigned __int32* GetPageTableAddr(byte* vadr)
 {
-	int i;
-	unsigned __int32 vpageno;
-	unsigned __int32 basepg;
-	static int last_searched_page = 0;
-	int page_count;
-
-	basepg = (pbl & 0x65535);
-	vpageno = ((vadr >> 14) & 0xffff) + basepg;
-	for (i = last_searched_page, page_count = 0; page_count < NPAGES; page_count++) {
-		while (LockMMUSemaphore()==0);
-		if (pmt[i].share_count==0) {
-			pmt[i].share_count = 1;
-			// Mark page valid, set acr and physical page number
-			page_table[vpageno] = (i & 0xffff)|((acr & 15) << 16)|0x80000000|(last_page<<22);
-			UnlockMMUSemaphore();
-			break;
-		}
-		UnlockMMUSemaphore();
-		i++;
-		if (i >= NPAGES)
-			i = 0;
-	}
-	last_searched_page = i;
+	unsigned __int32* vadr_reg = MMU_VADR;
+	unsigned __int32* padr_reg = MMU_PADR;
+	unsigned __int32* padrv_reg = MMU_PADRV;
+	
+	GetPageTableAddress(vadr);
 }
 
 // ----------------------------------------------------------------------------
+// Alloc enough pages to fill the requested amount.
 // ----------------------------------------------------------------------------
 
-void *pt_alloc(int asid, int amt, int acr)
+void *pt_alloc(int amt, int acr)
 {
 	__int8 *p;
 	int npages;
 	int nn;
-	unsigned __int32 pbl;
+	byte* page;
+	unsigned __int32* pe;
+	unsigned __int32 en;
+	unsigned __int32* ptcb;
 
-	if (asid < 0 || asid > 511)
-		throw (E_BadASID);
 	p = -1;
 	DBGDisplayChar('B');
 	amt = round16k(amt);
@@ -218,57 +200,70 @@ void *pt_alloc(int asid, int amt, int acr)
 	if (npages==0)
 		return (p);
 	DBGDisplayChar('C');
-	pbl = pebble[asid];
 	if (npages < sys_pages_available) {
 		sys_pages_available -= npages;
-		p = brks[asid];
-		brks[asid] += amt;
+		ptcb = GetRunningTCBPointer();
+		p = ptcb[230];
+		ptcb[230] += amt;
 		for (nn = 0; nn < npages-1; nn++) {
-			pt_alloc_page(pbl,p+(nn << 14),acr,0);
+			page = FindFreePage();
+			pe = GetPageTableEntryAddress(page+(nn << 14));
+			en = (acr << 13) | ((page >> 14) & 0x1fff) | 0x80000000;
+			*pe = en;
 		}
-		pt_alloc_page(pbl,p+(nn << 14),acr,1);
+		page = FindFreePage();
+		pe = GetPageTableEntryAddress(page+(nn << 14));
+		en = (acr << 13) | ((page >> 14) & 0x1fff) | 0x80200000;
+		*pe = en;
 	}
-	p |= (asid << 52);
+//	p |= (asid << 52);
 	DBGDisplayChar('E');
 	return (p);
 }
 
 
+// ----------------------------------------------------------------------------
 // pt_free() frees up 16kB blocks previously allocated with pt_alloc(), but does
 // not reset the virtual address pointer. The freed blocks will be available for
 // allocation. With a 64-bit pointer the virtual address can keep increasing with
 // new allocations even after memory is freed.
+//
+// Parameters:
+//		vadr - virtual address of memory to free
+// ----------------------------------------------------------------------------
 
 byte *pt_free(byte *vadr)
 {
 	int n;
 	int count;	// prevent looping forever
-	int asid;
-	int pbl;
 	int vpageno;
-	unsigned __int32 basepg;
 	int last_page;
+	unsigned __int32* pe;
+	unsigned __int32 pte;
 
-	asid = vadr >> 52;
-	pbl = pebble[asid];
-	vadr &= 0xFFFFFFFFFFFFFL;	// strip off asid
 	count = 0;
-	basepg = (pbl & 0x65535);
-	while (LockMMUSemaphore()==0);
 	do {
-		vpageno = ((vadr >> 14) & 0xffff) + basepg;
-		last_page = (page_table[vpageno] >> 24) & 1;
-		if (pmt[vpageno].share_count != 0) {
-			pmt[vpageno].share_count--;
-			if (pmt[vpageno].share_count==0)
-				page_table[vpageno] = 0;
+		vpageno = (vadr >> 14) & 0xffff;
+		while (LockMMUSemaphore(-1)==0);
+		pe = GetPageTableEntryAddress(vadr);
+		pte = *pe;
+		last_page = (pte >> 22) & 1;
+		while (LockPMTSemaphore(-1)==0);
+		if (PageManagementTable[vpageno].share_count != 0) {
+			PageManagementTable[vpageno].share_count--;
+			if (PageManagementTable[vpageno].share_count==0) {
+				pte = 0;
+				*pe = pte;
+			}
+		}
+		UnlockPMTSemaphore();
+		UnlockMMUSemaphore();
 		if (last_page)
 			break;
 		vadr += 16384;
 		count++;
 	}
 	while (count < NPAGES);
-	UnlockMMUSemaphore();
 	return (vadr);
 }
 
@@ -288,7 +283,7 @@ int mmu_AllocateMap()
 	throw (errno = E_NoMoreACBs);
 }
 
-pascal void mmu_FreeMap(register int mapno)
+void mmu_FreeMap(register int mapno)
 {
 	if (mapno < 0 || mapno >= NR_MAPS)
 		throw (errno = E_BadMapno);
@@ -301,53 +296,42 @@ pascal void mmu_FreeMap(register int mapno)
 void *sbrk(int size)
 {
 	byte *p, *q, *r;
-	int as,oas;
-	int pbl;
-	int vpageno;
-	unsigned __int32 basepg;
 	unsigned __int32 pte;
+	unsigned __int32* ptcb;
+	unsigned __int32* pe;
 
 	p = 0;
+	ptcb = GetRunningTCBPointer();
 	size = round16k(size);
 	if (size > 0) {
-		as = GetASID();
-		SetASID(0);
-		p = pt_alloc(as,size,7);
-		SetASID(as);
+		p = pt_alloc(size,7);
 		if (p==-1)
 			errno = E_NoMem;
 		return (p);
 	}
 	else if (size < 0) {
 		size = -size;
-		as = GetASID();
-		if (size > brks[as]) {
+		if (size > ptcb[230]) {
 			errno = E_NoMem;
 			return (-1);
 		}
-		SetASID(0);
-		r = p = brks[as] - size;
-		p |= as << 52;
-		for(q = p; q & 0xFFFFFFFFFFFFFL < brks[as];)
+		r = p = ptcb[230] - size;
+		for(q = p; q < ptcb[230];)
 			q = pt_free(q);
-		brks[as] = r;
+		ptcb[230] = r;
 		// Mark the last page
 		if (r > 0) {
-			pbl = pebble[as];
-			basepg = (pbl & 0x65535);
-			r = ((r >> 14) & 0xffff) + basepg;
-			while (LockMMUSemaphore()==0);
-			pte = page_table[r];
+			while (LockMMUSemaphore(-1)==0);
+			pe = GetPageTableEntryAddress(r);
+			pte = *pe;
 			pte &= 0xfcffffff;
-			pte |= 0x01000000;
-			page_table[r] = pte;
+			pte |= 0x00200000;
+			*pe = pte;
 			UnlockMMUSemaphore();
 		}
-		SetASID(as);
 	}
 	else {	// size==0
-		as = GetASID();
-		p = brks[as];	
+		p = ptcb[230];
 	}
 	return (p);
 }

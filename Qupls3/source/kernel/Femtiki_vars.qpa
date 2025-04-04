@@ -36,8 +36,10 @@
 
 # These OS structures and variables are statically allocatedfor now until the
 # the OS is in a better working state.
-
-.set PageManagementTable,0x00004000		# 65536 16B PMTEs
+.set _PAM,0x00002000										# 65536 bits (8kB)
+.set _PAMend,0x00004000
+.set _PageManagementTable,0x00004000		# 65536 16B PMTEs
+.set _PageManagementTableEnd,0x00104000
 .set acbs,0x00104000
 .set acbs_end,0x00184000			# 32 16kB ACBs
 .set tcbs,0x00184000
@@ -61,27 +63,27 @@
 .set iof_switch,0xFFF800BA
 .set nMessage,0xFFF800BC
 .set nMailbox,0xFFF800C0
-.set FreeACB,0xFFF800C2
-.set FreeTCB,0xFFF800C4
-.set FreeMSG,0xFFF800C6
-.set FreeMBX,0xFFF800C8
-.set TimeoutList,0xFFF800CC
-.set hKeybdMbx,0xFFF800D0
-.set hFocusSwitchMbx,0xFFF800D2
-.set BIOS_RespMbx,0xFFF800D4
-.set hasUltraHighPriorityTasks,0xFFF800D8
-.set im_save,0xFFF800DC
-.set sp_tmp,0xFFF800E0
-.set readyQ,0xFFF800E4
-.set readyQTail,0xFFF800E6
-.set NPAGES,0xFFF800E8
-.set syspages,0xFFF800EC
-.set mmu_FreeMaps,0xFFF800F0
-.set mmu_entries,0xFFF800F4
-.set freelist,0xFFF800F8
-.set hSearchMap,0xFFF800FC
-.set OSActive,0xFFF80100
-.set FemtikiVars_end,0xFFF80104
+.set FreeACB,0xFFF800C4
+.set FreeTCB,0xFFF800C8
+.set FreeMSG,0xFFF800CC
+.set FreeMBX,0xFFF800D0
+.set TimeoutList,0xFFF800D4
+.set hKeybdMbx,0xFFF800D8
+.set hFocusSwitchMbx,0xFFF800DC
+.set BIOS_RespMbx,0xFFF800E0
+.set hasUltraHighPriorityTasks,0xFFF800E4
+.set im_save,0xFFF800E8
+.set sp_tmp,0xFFF800EC
+.set readyQ,0xFFF800F0
+.set readyQTail,0xFFF800F4
+.set NPAGES,0xFFF800F8
+.set syspages,0xFFF800FC
+.set mmu_FreeMaps,0xFFF80100
+.set mmu_entries,0xFFF80104
+.set freelist,0xFFF80108
+.set hSearchMap,0xFFF8010C
+.set OSActive,0xFFF80110
+.set FemtikiVars_end,0xFFF80114
 
 ;gc_stack		rmb		512
 ;gc_pc				fcdw		0
