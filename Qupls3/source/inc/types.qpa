@@ -143,9 +143,9 @@
 # OS
 .set TCBStatus,700
 .set TCBPriority,701
-.set TCBWaitMbx,702
-.set TCBHasFocus,704
-.set TCBStackBot,708
+.set TCBWaitMbx,704
+.set TCBHasFocus,708
+.set TCBStackBot,712
 .set TCBMsgD1,716
 .set TCBMsgD2,724
 .set TCBMsgD3,732
@@ -167,10 +167,11 @@
 .set TCBAcbNext,848
 .set TCBAcbPrev,852
 .set TCBTsCmd,856
-.set TCBTsResp,858
-.set TCBTsCmdParm,864
-.set TCBhMailboxes,872	# room for 10 mailbox handles
-.set TCBName,900				# room for 32 16-bit characters
+.set TCBTsResp,864
+.set TCBTsCmdParm,872
+.set TCBhMailboxes,880	# room for 10 mailbox handles
+.set TCBbrk,920					# memoey brk point
+.set TCBName,924				# room for 32 16-bit characters
 .set TCB_SIZE,1024
 
 # Application Control Block
@@ -214,11 +215,11 @@
 .set ACBnumber,944
 .set ACBNext,952
 .set ACBTaskList,960
-.set ACBHasFocus,962
-.set ACBmid,964
-.set ACBStatus,966
-.set ACBTemplates,968   # 256 * 8 bytes reserved for template pointers
-.set ACBPad,3016
+.set ACBHasFocus,968
+.set ACBmid,970
+.set ACBStatus,972
+.set ACBTemplates,984   	# 256 * 8 bytes reserved for template pointers
+.set ACBPad,3032
 .set ACBStrings,3072  		# start of 1kB string area
 .set ACBVTextScreen,8192	# 8kB Text screen
 .set ACBEnd,16384
@@ -242,20 +243,25 @@
 
 .set MBX_OWNER,0	# tid of owning task
 #MBX_WTIDS			equ		4		; tasks waiting at mailbox
-.set MBX_LINK,4
-.set MBX_TQHEAD,8	# link field for free list shared with task queue head
-.set MBX_TQTAIL,12
-.set MBX_MQHEAD,16
-.set MBX_MQTAIL,20
-.set MBX_SIZE,24
+.set MBXLink,4
+.set MBXTQHead,8	# link field for free list shared with task queue head
+.set MBXTQTail,12
+.set MBXTQCount,16
+.set MBXMQHead,20
+.set MBXMQTail,24
+.set MBXMQCount,28
+.set MBXMQSize,32
+.set MBXMQMissed,36
+.set MBXMQStrategy,40
+.set MBX_SIZE,44
 
-.set MSG_LINK,0
-.set MSG_RETADR,4
-.set MSG_TGTADR,8
-.set MSG_TYPE,12
-.set MSG_D1,16
-.set MSG_D2,20
-.set MSG_D3,24
+.set MSGLink,0
+.set MSGRetAdr,4
+.set MSGDestAdr,8
+.set MSGType,12
+.set MSGD1,16
+.set MSGD2,20
+.set MSGD3,24
 .set MSG_SIZE,28
 
 .set PMT_SIZE,64

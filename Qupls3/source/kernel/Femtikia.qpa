@@ -1525,6 +1525,24 @@ LockPMTSemaphore:
 	blr
 
 #------------------------------------------------------------------------------
+# Lock the PMT semaphore.
+#
+# Parameters:
+#		a0 = number of retry attempts
+#	Returns:
+#		a0 = 1 if lock successful, 0 otherwise
+#------------------------------------------------------------------------------
+
+LockMSGSemaphore:
+	push br1
+	push a1
+	loadi a1,MSGSEMA
+	bl LockSemaphore
+	pop a1
+	pop br1
+	blr
+
+#------------------------------------------------------------------------------
 # macUnlock system semaphore.
 #
 # Parameters:
@@ -1549,6 +1567,10 @@ macro macUnlockPMTSemaphore
 	store r0,PMTSEMA
 endm
 
+macro macUnlockMSGSemaphore
+	store r0,MSGSEMA
+endm
+
 # 'C' callable functions
 
 _UnlockSysSemaphore:
@@ -1565,6 +1587,10 @@ _UnlockACBSemaphore:
 
 _UnlockPMTSemaphore:
 	store r0,PMTSEMA
+	blr
+
+_UnlockMSGSemaphore:
+	store r0,MSGSEMA
 	blr
 
 #------------------------------------------------------------------------------

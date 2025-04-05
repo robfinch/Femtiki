@@ -1,0 +1,674 @@
+# ============================================================================
+#        __
+#   \\__/ o\    (C) 2020-2025  Robert Finch, Waterloo
+#    \  __ /    All rights reserved.
+#     \/_//     robfinch<remove>@finitron.ca
+#       ||
+#  
+#
+# BSD 3-Clause License
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# ============================================================================
+
+include "..\..\inc\config.qpa"
+include "..\..\inc\const.qpa"
+include "..\..\inc\types.qpa"
+;include "..\..\inc\io_equates.qpa"
+include ".\Femtiki_vars.qpa"
+
+# ---------------------------------------------------------------
+# ---------------------------------------------------------------
+
+macro macMBXPointerToHandle
+	xor a0,a0,0x12345678
+endm
+
+macro macMBXHandleToPointer
+	xor. a0,a0,0x12345678
+endm
+
+# ---------------------------------------------------------------
+#	Description:
+#		Copy a message. Assumes guarded by messasge semaphore.
+# Stack Space:
+#		1 word
+# Parameters:
+#		a0 = destination message
+#		a1 = source message
+# ---------------------------------------------------------------
+
+CopyMsg:
+	push 0x8,0
+	load a2,MSGType[a1]
+	store a2,MSGType[a0]
+	load a2,MSGRetAdr[a1]
+	store a2,MSGRetAdr[a0]
+	load a2,MSGDestAdr[a1]
+	store a2,MSGDestAdr[a0]
+	store -1,MSGLink[a0]
+	load a2,MSGD1[a1]
+	store a2,MSGD1[a0]
+	load a2,MSGD2[a1]
+	store a2,MSGD2[a0]
+	load a2,MSGD3[a1]
+	store a2,MSGD3[a0]
+	pop 0x8,0
+	blr
+
+# ---------------------------------------------------------------
+#	Description:
+#		Freeup message and add back to free list. Assumes the message
+# semaphore is guarding the operation.
+#
+# Stack Space:
+#		1 word
+# Parameters:
+#		a0 = pointer to message
+# ---------------------------------------------------------------
+
+FreeMsg:
+	push 0x4,0
+	store MT_FREE,MSGType[a0]
+	store -1,MSGRetAdr[a0]
+	store -1,MSGDEstAdr[a0]
+	load a1,freeMSG;
+	store a1,MSGLink[a0]
+	store a0,freeMSG
+	amoadd r0,1,nMsgBlk
+	pop 0x4,0
+	blr
+
+# ---------------------------------------------------------------
+#	Description:
+#		Queue a message at a mailbox.
+#
+#	Assumptions:
+#		valid mailbox parameter.
+#
+#	Called from:
+#		SendMsg
+#		PostMsg
+# Parameters:
+#		a0 = pointer to mailbox
+#		a1 = pointer to message
+# ---------------------------------------------------------------
+
+QueueMsg:
+	push br1
+	push 0x38,0					# save a2,a3,a4
+	loadi a4,E_Ok
+	move a2,a0
+	loadi a0,-1
+	bl LockMSGSemaphore
+	beq cr0,.0001
+	amoadd r0,1,MBXMQCount[a2]
+	load a0,MBXMQStrategy[a2]
+	cmp cr0,a0,MQS_UNLIMITED
+	beq cr0,.0002
+	cmp cr0,a0,MQS_NEWEST
+	bne cr0,.0005
+.0008:
+	load a0,MBXMQCount[a2]
+	load a3,MBXMQSize[a2]
+	cmpa cr0,a0,a3
+	ble .0004
+	load a0,MBXMQHead[a2]
+	load a3,MSGLink[a0]
+	bl FreeMsg
+	amoadd r0,-1,MBXMQCount[a2]
+	store a3,MBXMQHead[a2]
+	load. a0,MBXMQMissed[a2]
+	bge cr0,.0007
+	amoadd r0,1,MBXMQMissed[a2]
+.0007:
+	loadi r4,E_QueFull
+	b .0008
+.0005:
+	cmp cr0,a0,MQS_OLDEST
+	bne cr0,.0004
+	load a0,MBXMQCount[a2]
+	load a3,MBXMQSize[a2]
+	cmpa cr0,a0,a3
+	ble .0009
+	move a0,a1										# free up passed in message
+	bl FreeMsg
+	amoadd r0,-1,MBXMQCount[a2]
+	store a3,MBXMQHead[a2]
+	load. a0,MBXMQMissed[a2]
+.0009:
+	load a0,MBXMQCount[a2]
+	load a3,MBXMQSize[a2]
+	cmpa cr0,a0,a3
+	ble cr0,.00010
+	load a0,MBXMQHead[a2]
+	load a3,MBXMQTail[a2]
+.00012:
+	cmp cr0,a0,a3
+	beq cr0,.00011
+	move a1,a0										# msg = tmpmsg
+	move a0,MSGLink[a0]
+	b .00012
+.00011:
+	store a1,MBXMQTail[a2]				# mbx->mq_tail = msg
+	bl FreeMsg										# FreeMsg(tmpmsg)
+	load. a0,MBXMQMissed[a2]
+	bge cr0,.00013
+	amoadd r0,1,MBXMQMissed[a2]
+.00013:
+	amoadd r0,-1,MBXMQCount[a2]
+	loadi r4,E_QueFull
+.00010:
+	cmp cr0,a4,E_QueFull
+	beq cr0,.00014
+.0002:
+	load. a0,MBXMQTail[a2]
+	blt cr0,.0003
+	mula a0,a0,MSG_SIZE						# x bytes per message
+	loada a3,messages[a0]
+	store a1,MSGLink[a3]					# 	message[mbx->mq_tail].link = msg
+	b .0004												# else
+.0003:
+	store a1,MBXMQHead[a2]				#		mbx->mq_head = msg
+.0004:
+	store a1,MBXMQTail[a2]				# mbx->mq_tail = msg
+	store -1,MSGLink[a1]					# msg->link = -1
+.00014:
+	macUnlockMSGSemaphore
+.0001:
+	move a0,a4
+	pop 0x38,0
+	pop br1
+	blr	
+
+# ---------------------------------------------------------------
+#	Description:
+#		Dequeues a message from a mailbox.
+#
+#	Assumptions:
+#		Mailbox parameter is valid.
+#		System semaphore is locked already.
+#
+#	Called from:
+#		FreeMbx - (locks mailbox)
+#		WaitMsg	-	"
+#		CheckMsg-	"
+# Parameters:
+#		a0 = pointer to mailbox
+# ---------------------------------------------------------------
+
+DequeueMsg:
+	push 0xc,0								# save a1,a2
+	move a1,a0
+	loadi a0,0
+	load. a2,MBXMQCount[a1]
+	beq cr0,.0001
+	amoadd r0,-1,MBXMQCount[a1]
+	load. a0,MBXMQHead[a1]
+	blt cr0,.0001
+	load. a2,MSGLink[a0]
+	store a2,MBXMQHead[a1]
+	bge cr0,.0002
+	store -1,MBXMQTail[a1]
+.0002:
+	store a0,MSGLink[a0]
+.0001:
+	pop 0xc,0
+	blr
+
+# ---------------------------------------------------------------
+#	Description:
+#		Dequeues a task from a mailbox. The task will also
+#	be removed from the timeout list (if it's present there),
+#	and	the timeout list will be adjusted accordingly.
+#
+#	Assumptions:
+#		Mailbox parameter is valid.
+# Parameters:
+#		a0 = pointer to mailbox
+# Returns:
+#		a0 = error code
+#		a1 = task
+# ---------------------------------------------------------------
+
+DequeTaskFromMbx:
+	cmp cr0,a0,0			# mbx null?
+	beq cr0,.0001
+	push 0x38,0				# save a2,a3,a4
+	move a2,a0
+	loadi a0,-1
+	bl LockMSGSemaphore
+	beq cr0,.0006
+	load a0,MBXTQHead[a2]
+	cmp cr0,a1,-1
+	bne cr0,.0002
+	macUnlockMSGSemaphore
+	loadi a1,0
+	loadi a0,E_NoTask
+	pop 0x38,0
+	pop br1
+	blr
+.0002:
+	amoadd r0,-1,MBXTQCount[a2]
+	load a3,MBXTQHead[a2]
+	move a1,a3
+	load. a4,TCBMBQNext[a3]
+	store a4,MBXTQHead[a2]
+	ble cr0,.0003
+	store -1,TCBMBQPrev[a3]
+	b .0004
+.0003:
+	store -1,MBXTQTail[a2]
+.0004:
+	macUnlockMSGSemaphore
+	cmp cr0,a3,0
+	beq cr0,.0005
+	load a4,TCBStatus[a3]
+	and. r0,TS_TIMEOUT,a4
+	beq cr0,.0007
+	move a0,a3
+	bl RemoveFromTimeoutList
+.0007:
+	store -1,TCBMBQNext[a3]
+	store -1,TCBMBQPrev[a3]
+	store -1,TCBhWaitMbx[a3]	# no longer waiting at mailbox
+	amoandb r0,~TS_WAITMSG,TCBStatus[a3]
+.0005:
+	loadi a0,E_Ok
+	pop 0x38,0
+	pop br1
+	blr
+	# Here the semaphore could not be locked
+.0006:
+	loadi a0,E_Busyed
+	pop 0x38,0
+	pop br1
+	blr
+	# Here there was a problem with an argument
+.0001:
+	loadi a0,E_Arg
+  blr
+
+# ---------------------------------------------------------------
+#	Description:
+#		Allocate a mailbox. The default queue strategy is to
+#	queue the eight most recent messages.
+#
+# Parameters:
+#		a0 = pointer to place to store mailbox handle
+# ---------------------------------------------------------------
+
+FMTK_AllocMbx:
+	cmp cr0,a0,0
+	bne cr0,.0001
+	loadi a0,E_Arg
+	blr
+.0001:
+	push 0xc,0						# save a1,a2
+	move a1,a0						# a1 = pointer to pointer to mailbox
+	loadi a0,-1
+	bl LockMSGSemaphore
+	beq cr0,.0002
+	load. a0,freeMBX
+	beq cr0,.0003
+	cmp cr0,a0,-1
+	bne cr0,.0004
+.0003:
+	macUnlockMSGSemaphore
+	loadi a0,E_NoMoreMbx
+	pop 0xc,0
+	pop br1
+	blr
+.0004:
+	load a2,MBXLink[a0]
+	store a2,freeMBX
+	amoadd r0,-1,nMailbox
+	macUnlockMSGSemaphore
+	move a2,a0
+	macMBXPointerToHandle
+  csrrs r0,M_SR,0x80000		# set MPRV bit
+  sync
+	store a0,[a1]						# do the store to the proper address space
+  csrrc r0,M_SR,0x80000		# reset MPRV bit
+  sync
+	move a1,a2
+	bl GetAppHandle
+	stb a0,MBXOwner[a1]
+	store -1,MBXTQHead[a1]
+	store -1,MBXTQTail[a1]
+	store -1,MBXMQHead[a1]
+	store -1,MBXMQTail[a1]
+	store r0,MBXTQCount[a1]
+	store r0,MBXMQCount[a1]
+	store r0,MBXMQMissed[a1]
+	store 8,MBXMQSize[a1]
+	store MQS_NEWEST,MBXMQStrategy[a1]
+	loadi a0,E_Ok
+	pop 0xc,0
+	pop br1
+	blr
+.0002:
+	loadi a0,E_Busy
+	pop 0xc,0
+	pop br1
+	blr
+
+# ---------------------------------------------------------------
+#	Description:
+#		Free up a mailbox. When the mailbox is freed any queued
+#	messages must be freed. Any queued threads must also be
+#	dequeued. 
+# ---------------------------------------------------------------
+
+FMTK_FreeMbx:
+	macMBXHandleToPointer
+	beq cr0,.0001
+	push br1
+	push 0xc,0						# save a1,a2
+	move a1,a0
+	loadi a0,-1
+	bl LockMSGSemaphore
+	beq cr0,.0002
+	bl GetAppHandle
+	ldbz. a2,MBXOwner[a1]
+	beq cr0,.0003
+	cmp cr0,a0,a2
+	beq cr0,.0003
+	macUnlockMSGSemaphore
+	loadi a0,E_NotOwner
+	pop 0xc,0
+	pop br1
+	blr
+	# Free up any queued messages
+.0003:
+	move a0,a1
+	bl DequeueMsg
+	cmp cr0,a0,0
+	beq cr0,.0004
+	bl FreeMsg
+	b .0003
+.0004:
+	move a0,a1
+	move a2,a1
+	bl DequeTaskFromMbx
+	move a0,a1
+	move a1,a2
+	beq cr0,.0005
+	store MT_NONE,TCBMsg+MSGType[a0]
+	and. r0,TS_TIMEOUT,TCBStatus[a0]
+	beq cr0,.0006
+	bl RemoveFromTimeoutList
+.0006:
+	bl InsertIntoReadyQueue
+	move a1,a2
+	b .0004
+.0005:
+	load a0,freeMBX
+	store a0,MBXLink[a1]
+	store a1,freeMBX
+	amoadd r0,1,nMailbox
+	macUnlockMSGSemaphore
+	loadi a0,E_Ok
+	pop 0xc,0
+	pop br1
+	blr
+.0002:
+	loadi a0,E_Busy
+	pop 0xc,0
+	pop br1
+	blr
+	
+# ---------------------------------------------------------------
+#	Description:
+#		Set the mailbox message queueing strategy.
+# ---------------------------------------------------------------
+
+SetMbxMsgQueStrategy:
+	cmp cr0,a0,0
+	beq cr0,.0001
+	cmpa cr0,a1,2
+	bgt cr0,.0001
+	push br1
+	push 0x30,0						# save a3,a4
+	move a3,a0
+	loadi a0,-1
+	bl LockMSGSemaphore
+	beq cr0,.0002
+	# Check if this app owns the mailbox
+	bl GetAppHandle
+	beq cr0,.0003
+	ldbz a4,MBXOwner[a3]
+	cmp cr0,a0,a3
+	beq cr0,.0003
+	macUnlockMSGSemaphore
+	loadi a0,E_NotOwner
+	pop 0x30,0
+	pop br1
+	blr
+.0003:
+	store a1,MBXMQStrategy[a3]
+	store a2,MBXMQSize[a3]
+	macUnlockMSGSemaphore
+	loadi a0,E_Ok
+	pop 0x30,0
+	pop br1
+	blr
+.0002:
+	loadi a0,E_Busy
+	pop 0x30,0
+	pop br1
+	blr
+.0001:
+	loadi a0,E_Arg
+	blr
+
+# ---------------------------------------------------------------
+#	Description:
+#		Send a message.
+# Parameters:
+#		a0 = handle of mailbox
+#		a1 = message data #1
+#		a2 = message data #2
+#		a3 = message data #3
+# ---------------------------------------------------------------
+
+FMTK_SendMsg:
+	macMBXHandleToPointer
+	cmp cr0,a0,0
+	beq cr0,.0001
+	push br1
+	push 0xe0,0						# Save a4,a5,a6
+	loadi a6,0						# thrd = null
+	move a4,a0
+	loadi a0,-1
+	bl LockMSGSemaphore
+	beq cr0,.0002
+	load. a0,MBXOwner[a4]
+	bge cr0,.0003
+	cmp cr0,a0,NR_ACB
+	ble cr0,.0003
+	macUnlockMSGSemaphore
+	loadi a0,E_NotAlloc
+	pop 0xe0,0
+	pop br1
+	blr
+.0003:
+	load. a0,freeMSG
+	beq cr0,.0005
+	cmp cr0,a0,-1
+	bne cr0,.0004
+.0005:
+	macUnlockMSGSemaphore
+	loadi a0,E_NoMoreMsgBlks
+	pop 0xe0,0
+	pop br1
+	blr
+.0004:
+	move a5,a0
+	load a0,MSGLink[a5]
+	store a0,freeMSG
+	amoadd r0,-1,nMsgBlk
+	bl GetAppHandle
+	stb a0,MSGRetAdr[a5]
+	store a4,MSGDestAdr[a5]
+	store MBT_DATA,MSGType[a5]
+	store a1,MSGD1[a5]
+	store a2,MSGD2[a5]
+	store a4,MSGD3[a5]
+	move a0,a5
+	bl DequeTaskFromMbx
+	move a6,a1
+	macUnlockMSGSemaphore
+.0002:
+	cmp cr0,a6,0
+	bne cr0,.0006
+	move a0,a4
+	move a1,a5
+	bl QueueMsg
+	pop 0xe0,0
+	pop br1
+	blr
+.0006:
+	loadi a0,-1
+	bl LockMSGSemaphore
+	beq cr0,.0008
+	loada a0,TCBMsg[a6]
+	move a1,a5
+	bl CopyMsg
+	bl FreeMsg
+	load a0,TCBStatus[a6]
+	and. r0,a0,TS_TIMEOUT
+	beq cr0,.0007
+	move a0,a6
+	bl RemoveFromTimeoutList
+.0007:
+	move a0,a6
+	bl InsertIntoReadyQueue
+	macUnlockMSGSemaphore
+	# The ready queue changed, maybe a different task is higher priority,
+	# invoke scheduling
+	bli FemtikiTimerISR
+.0008:
+	loadi a0,E_Ok
+	pop 0xe0,0
+	pop br1
+	blr
+.0001:
+	loadi a0,E_Arg
+	blr
+	
+
+# ---------------------------------------------------------------
+#	Description:
+#		PostMsg() is meant to be called in order to send a
+#	message without causing the thread to switch. This is
+#	useful in some cases. For example interrupts that don't
+#	require a low latency. Normally SendMsg() will be called,
+#	even from an ISR to allow the OS to prioritize events.
+# ---------------------------------------------------------------
+
+FMTK_PostMsg:
+	macMBXHandleToPointer
+	cmp cr0,a0,0
+	beq cr0,.0001
+	push br1
+	push 0xe0,0						# Save a4,a5,a6
+	loadi a6,0						# thrd = null
+	move a4,a0
+	loadi a0,-1
+	bl LockMSGSemaphore
+	beq cr0,.0002
+	load. a0,MBXOwner[a4]
+	bge cr0,.0003
+	cmp cr0,a0,NR_ACB
+	ble cr0,.0003
+	macUnlockMSGSemaphore
+	loadi a0,E_NotAlloc
+	pop 0xe0,0
+	pop br1
+	blr
+.0003:
+	load. a0,freeMSG
+	beq cr0,.0005
+	cmp cr0,a0,-1
+	bne cr0,.0004
+.0005:
+	macUnlockMSGSemaphore
+	loadi a0,E_NoMoreMsgBlks
+	pop 0xe0,0
+	pop br1
+	blr
+.0004:
+	move a5,a0
+	load a0,MSGLink[a5]
+	store a0,freeMSG
+	amoadd r0,-1,nMsgBlk
+	bl GetAppHandle
+	stb a0,MSGRetAdr[a5]
+	store a4,MSGDestAdr[a5]
+	store MBT_DATA,MSGType[a5]
+	store a1,MSGD1[a5]
+	store a2,MSGD2[a5]
+	store a4,MSGD3[a5]
+	move a0,a5
+	bl DequeTaskFromMbx
+	move a6,a1
+	macUnlockMSGSemaphore
+.0002:
+	cmp cr0,a6,0
+	bne cr0,.0006
+	move a0,a4
+	move a1,a5
+	bl QueueMsg
+	pop 0xe0,0
+	pop br1
+	blr
+.0006:
+	loadi a0,-1
+	bl LockMSGSemaphore
+	beq cr0,.0008
+	loada a0,TCBMsg[a6]
+	move a1,a5
+	bl CopyMsg
+	bl FreeMsg
+	load a0,TCBStatus[a6]
+	and. r0,a0,TS_TIMEOUT
+	beq cr0,.0007
+	move a0,a6
+	bl RemoveFromTimeoutList
+.0007:
+	move a0,a6
+	bl InsertIntoReadyQueue
+	macUnlockMSGSemaphore
+.0008:
+	loadi a0,E_Ok
+	pop 0xe0,0
+	pop br1
+	blr
+.0001:
+	loadi a0,E_Arg
+	blr
+
