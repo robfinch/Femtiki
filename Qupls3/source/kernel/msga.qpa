@@ -443,6 +443,9 @@ FMTK_FreeMbx:
 	pop %a1-%a2
 	pop %br1
 	blr
+.0001:
+	loadi %a0,E_Arg
+	blr
 	
 # ---------------------------------------------------------------
 #	Description:

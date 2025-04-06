@@ -54,7 +54,6 @@
 .set FPStateEnd,4
 
 	.text
-	.org		0xFFFC0000
 
 #------------------------------------------------------------------------------
 # Convert a TCB handle into a pointer to the corresponding TCB.
@@ -829,12 +828,12 @@ FMTK_GetMid:
 #		a0 = pointer to running TCB
 #------------------------------------------------------------------------------
 
-.macro macGetRunningTCBPtr
+.macro macGetRunningTCBPointer
 	load %a0,RunningID
 	macTCBHandleToPointer
 .endm
 
-GetRunningTCBPtr:
+GetRunningTCBPointer:
 	load %a0,RunningID
 	macTCBHandleToPointer
 	blr
@@ -849,7 +848,7 @@ GetRunningTCBPtr:
 FMTK_GetRunningTCBPointer:
   cmpi %cr0,%a1,0						# check for null pointer
   beq %cr0,.0001
-	macGetRunningTCBPtr
+	macGetRunningTCBPointer
   csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
 	stptr %a0,[%a1]						# do the store to the proper address space
@@ -1192,7 +1191,7 @@ SwitchTask:
 	# Load the destination context
 	# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	# walk forwards loading registers
-	macGetRunningTCBPtr
+	macGetRunningTCBPointer
 	csrrw %r0,TCBA,%a0			# update running TCB address
 
 	# load condition registers
@@ -1489,7 +1488,7 @@ SelectTaskToRun:
 FMTK_StartTask:
 	move %br2,%br1
 	load %t0,RunningID
-	macGetRunningTCBPtr
+	macGetRunningTCBPointer
 	move %a7,%a0
 	stbi TSC_ALLOCTCB,TCBTsCmd[%a7]	# request a TCB from the scheduler
 	bli FemtikiTimerISR
@@ -1571,7 +1570,7 @@ FMTK_KillTask:
 	loadi %a0,-1
 	bl LockSysSemaphore
 	beq %cr0,.0001
-	macGetRunningTCBPtr
+	macGetRunningTCBPointer
 	move %a0,%a1
 	bl RemoveFromReadyQueue
 	bl RemoveFromTimeoutList
