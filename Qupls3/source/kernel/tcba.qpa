@@ -39,30 +39,30 @@
 #------------------------------------------------------------------------------
 
 IAllocTCB:
-	push 0xc,0							# push a1,a2
-	load. a0,FreeTCB
-	beq	cr0,.0001
-	load a1,TCBNext[a0]
-	stptr	a1,FreeTCB
+	push %a1-%a2
+	load. %a0,FreeTCB
+	beq	%cr0,.0001
+	load %a1,TCBNext[%a0]
+	stptr	%a1,FreeTCB
 .0001:
-	pop 0xc,0
+	pop %a1-%a2
 	blr
 
 # Not called from anywhere
 
 FMTK_AllocTCB:
-	blr br1
+	blr %br1
 	
 #------------------------------------------------------------------------------
 # IFreeTCB is called from SelectTaskToRun (timer ISR)
 #------------------------------------------------------------------------------
 
 IFreeTCB:
-	push 0xc,0
-	load a1,FreeTCB
-	stptr a1,TCBNext[a0]
-	stptr	a0,FreeTCB
-	pop 0xc,0
+	push %a1-%a2
+	load %a1,FreeTCB
+	stptr %a1,TCBNext[%a0]
+	stptr	%a0,FreeTCB
+	pop %a1-%a2
 	blr
 
 #------------------------------------------------------------------------------
@@ -72,13 +72,13 @@ IFreeTCB:
 #------------------------------------------------------------------------------
 
 FMTK_FreeTCB:
-	cmp cr0,a0,0
-	ble cr0,.0001
-	stb TSC_FREE,TCBTsCmd[a0]
-	loadi a0,E_Ok
+	cmp %cr0,%a0,0
+	ble %cr0,.0001
+	stbi TSC_FREE,TCBTsCmd[%a0]
+	loadi %a0,E_Ok
 	blr
 .0001:
-	loadi a0,E_NotAlloc
+	loadi %a0,E_NotAlloc
 	blr
 
 #------------------------------------------------------------------------------
@@ -90,18 +90,18 @@ FMTK_FreeTCB:
 # Modifies:
 #		none
 # Parameters:
-#		a0 = task id to insert
+#		%a0 = task id to insert
 #------------------------------------------------------------------------------
 
 InsertIntoReadyQueue:
-	cmp cr0,a0,0
-	ble cr0,.0001
-	ldbz a1,TCBPriority[a0]
-	loadi a4,TS_RUNNING
-	amoorb r0,a4,TCBStatus[a0]
-	and a1,a1,63							# safety, 0 to 63 for priority
-	sll a1,a1,2
-	store a0,RDYQ[a1]
+	cmpi %cr0,%a0,0
+	ble %cr0,.0001
+	ldbz %a1,TCBPriority[%a0]
+	loadi %a4,TS_RUNNING
+	amoorb %r0,%a4,TCBStatus[%a0]
+	andi %a1,%a1,63							# safety, 0 to 63 for priority
+	slli %a1,%a1,2
+	store %a0,RDYQ[%a1]
 .0001:
 	blr
 
@@ -111,15 +111,15 @@ InsertIntoReadyQueue:
 # a choice for running.
 #
 # Parameters:
-#		a0 = task id to remove
+#		%a0 = task id to remove
 #------------------------------------------------------------------------------
 
 RemoveFromReadyQueue:
-	cmp cr0,a0,0							# sanity check
-	beq cr0,.0001
-	loadi a1,~(TS_RUNNING|TS_READY)
-	amoandb r0,a1,TCBStatus[a0]
-0001:
+	cmpi %cr0,%a0,0							# sanity check
+	beq %cr0,.0001
+	loadi %a1,~(TS_RUNNING|TS_READY)
+	amoandb %r0,%a1,TCBStatus[%a0]
+.0001:
 	blr
 	
 #------------------------------------------------------------------------------
@@ -128,7 +128,7 @@ RemoveFromReadyQueue:
 # mailbox.
 #
 # Parameters:
-#		a0 = task id to remove
+#		%a0 = task id to remove
 # Modifies:
 #		none
 # Returns:
@@ -136,36 +136,37 @@ RemoveFromReadyQueue:
 #------------------------------------------------------------------------------
 
 RemoveFromTimeoutList:
-	push 0x1e,0
-	cmpa cr0,a0,TimeoutList	# head of list?
-	beq	cr0,.0001
-	move a2,a0							# a2 points to arg
+	push %a0-%a4
+	load %a1,TImeoutList
+	cmpa %cr0,%a0,%a1					# head of list?
+	beq	%cr0,.0001
+	move %a2,%a0							# %a2 points to arg
 	# We want
 	# arg->next->prev = arg->prev
 	# arg->prev->next = arg->next
-	load a0,TCBNext[a2]
-	move a1,a0
-	load a0,TCBPrev[a2]
-	move a3,a0
+	load %a0,TCBNext[%a2]
+	move %a1,%a0
+	load %a0,TCBPrev[%a2]
+	move %a3,%a0
 	# Here:
-	# a1 = arg->next
-	# a3 = arg->prev
-	load a4,TCBPrev[a2]
-	stptr a4,TCBPrev[a3]
-	load a4,TCBNext[a2]
-	stptr a4,TCBNext[a1]
+	# %a1 = arg->next
+	# %a3 = arg->prev
+	load %a4,TCBPrev[%a2]
+	stptr %a4,TCBPrev[%a3]
+	load %a4,TCBNext[%a2]
+	stptr %a4,TCBNext[%a1]
 	b	.0002
 	# Removing from head of timeout list
 .0001:
-	load a1,TCBNext[a0]
-	stptr	a1,TimeoutList		# set new head of list
-	move a2,a0
-	move a0,a1
-	stptr	r0,TCBPrev[a0]		# next->prev = NULL
-0002:
-	stptr	r0,TCBNext[a2]		# arg->next = NULL
-	stptr r0,TCBPrev[a2]		# arg->prev = NULL
-	pop 0x1e,0
+	load %a1,TCBNext[%a0]
+	stptr	%a1,TimeoutList		# set new head of list
+	move %a2,%a0
+	move %a0,%a1
+	stptr	%r0,TCBPrev[%a0]		# next->prev = NULL
+.0002:
+	stptr	%r0,TCBNext[%a2]		# arg->next = NULL
+	stptr %r0,TCBPrev[%a2]		# arg->prev = NULL
+	pop %a0-%a4
 	blr
 	
 #// ----------------------------------------------------------------------------
@@ -193,58 +194,58 @@ RemoveFromTimeoutList:
 #
 
 PopTimeoutList:
-	push 0xe,0
-	load. a0,TimeoutList
-	beq	cr0,.0001
-	load. a1,TCBNext[a0]
-	load a2,TCBPrev[a0]
-	stptr a1,TimeoutList
-	beq	cr0,.0001
-	move a3,a0
-	move a0,a1
-	stptr a2,TCBPrev[a0]
-	move a0,a2
-	stptr a1,TCBNext[a0]
-	stptr r0,TCBPrev[a3]
-	stptr r0,TCBNext[a3]
+	push %a0-%a3
+	load. %a0,TimeoutList
+	beq	%cr0,.0001
+	load. %a1,TCBNext[%a0]
+	load %a2,TCBPrev[%a0]
+	stptr %a1,TimeoutList
+	beq	%cr0,.0001
+	move %a3,%a0
+	move %a0,%a1
+	stptr %a2,TCBPrev[%a0]
+	move %a0,%a2
+	stptr %a1,TCBNext[%a0]
+	stptr %r0,TCBPrev[%a3]
+	stptr %r0,TCBNext[%a3]
 .0001:
-	pop 0xe,0
+	pop %a0-%a3
 	blr
 
 # ----------------------------------------------------------------------------
 # ----------------------------------------------------------------------------
 
 DispTwoSpace:
-	push br1
+	push %br1
 	bl DispSpace
-	pop br1
+	pop %br1
 DispSpace:
-	loadi a0,MF_OUTCH
-	loadi a1,' '
+	loadi %a0,MF_OUTCH
+	loadi %a1,' '
 	sys
 	blr
 
 DumpTCBs:
-	push br1
-	loadi a0,MF_CRLF
+	push %br1
+	loadi %a0,MF_CRLF
 	sys
-	loadi a0,tcbs
+	loadi %a0,tcbs
 .0002:
-	move a1,a0
-	load TCBtid[a0]
-	loadi a0,MF_DisplayTetraAsHex
+	move %a3,%a0
+	load %a1,TCBtid[%a0]
+	loadi %a0,MF_DisplayTetraAsHex
 	sys
 	bl DispSpace
-	loadi a0,MF_DisplayByteAsHex
-	ldbz a2,TCBStatus[a1]
+	loadi %a0,MF_DisplayByteAsHex
+	ldbz %a2,TCBStatus[%a3]
 	sys
 	bl DispTwoSpace
-	loadi a0,MF_CRLF
+	loadi %a0,MF_CRLF
 	sys
-	load. a0,TCBNext[a1]
-	bne cr0,.0002			# could use PRED here
+	load. %a0,TCBNext[%a3]
+	bne %cr0,.0002			# could use PRED here
 .0001:
-	pop br1
+	pop %br1
 	blr
 	
 .byte	"TID Stat"

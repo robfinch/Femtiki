@@ -36,18 +36,26 @@
 
 # These OS structures and variables are statically allocatedfor now until the
 # the OS is in a better working state.
-.set _PAM,0x00002000										# 65536 bits (8kB)
+# 65536 bits (8kB)
+	.data
+
+.set _PAM,0x00002000										
 .set _PAMend,0x00004000
-.set _PageManagementTable,0x00004000		# 65536 16B PMTEs
+# 65536 16B PMTEs
+.set _PageManagementTable,0x00004000		
 .set _PageManagementTableEnd,0x00104000
 .set acbs,0x00104000
-.set acbs_end,0x00184000			# 32 16kB ACBs
+# 32 16kB ACBs
+.set acbs_end,0x00184000			
 .set tcbs,0x00184000
-.set tcbs_end,0x00584000			# 4096 1kB TCBs
+# 4096 1kB TCBs
+.set tcbs_end,0x00584000			
 .set messages,0x00584000
-.set messages_end,0x00684000	# 32768 32B MSGs
+# 32768 32B MSGs
+.set messages_end,0x00684000	
 .set mailboxes,0x00684000
-.set mailboxes_end,0x006E4000	# 16384 34B MBXs
+# 16384 34B MBXs
+.set mailboxes_end,0x006E4000	
 
 .set sys_stacks,0xFFFB0000
 .set FemtikiVars,0xFFF80020
@@ -57,7 +65,14 @@
 .set ACBPtrs,0xFFF8002C
 .set MidStackBottoms,0xFFF800AC
 .set FemtikiInited,0xFFF800B0
-.set missed_ticks,0xFFF800B4
+#.set missed_ticks,0xFFF800B4
+	.4byte missed_ticks
+	.4byte OSSEMA
+	.4byte MSGSEMA
+	.4byte TCBSEMA
+	.4byte MMUSEMA
+	.4byte ACBSEMA
+	.4byte PMTSEMA 
 .set IOFocusList,0xFFF800B8
 .set IOFocusID,0xFFF800B9
 .set iof_switch,0xFFF800BA
@@ -85,8 +100,8 @@
 .set OSActive,0xFFF80110
 .set FemtikiVars_end,0xFFF80114
 
-;gc_stack		rmb		512
-;gc_pc				fcdw		0
-;gc_omapno		fcw			0
-;gc_mapno		fcw			0
-;gc_dl				fcw			0
+#gc_stack		rmb		512
+#gc_pc				fcdw		0
+#gc_omapno		fcw			0
+#gc_mapno		fcw			0
+#gc_dl				fcw			0

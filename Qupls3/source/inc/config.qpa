@@ -40,15 +40,25 @@
 
 .set MAX_TID,4095
 .set NR_TCB,4095
-.set NTASK,4095    		# number of tasks allowed
-.set LOG_TCBSZ,10			# TCB size in bits of address space
-.set LOG_PGSZ,14			# MMU page size
-.set LOG_ACBSZ,14			# ACB size in bits of address space
-.set OSPAGES,512			# pages of memory dedicated to OS
-.set PAGESZ,16384  		# size of a page of memory
-.set MEMSZ,65536   		# number of pages of memory
-.set MBX_BLOCKPTR_BUFSZ,8 	# number of block pointer entries
-.set NR_MSG,32768			# number of messages available
-.set NR_MBX,16384			# number of mailboxes
+# number of tasks allowed
+.set NTASK,4095
+# TCB size in bits of address space    		
+.set LOG_TCBSZ,10
+# MMU page size			
+.set LOG_PGSZ,14
+# ACB size in bits of address space			
+.set LOG_ACBSZ,14
+# pages of memory dedicated to OS			
+.set OSPAGES,512
+# size of a page of memory			
+.set PAGESZ,16384
+# number of pages of memory  		
+.set MEMSZ,65536
+# number of block pointer entries   		
+.set MBX_BLOCKPTR_BUFSZ,8 	
+# number of messages available
+.set NR_MSG,32768
+# number of mailboxes			
+.set NR_MBX,16384			
 
 

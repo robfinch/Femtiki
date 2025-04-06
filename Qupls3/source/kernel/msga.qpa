@@ -34,22 +34,22 @@
 #
 # ============================================================================
 
-include "..\..\inc\config.qpa"
-include "..\..\inc\const.qpa"
-include "..\..\inc\types.qpa"
-;include "..\..\inc\io_equates.qpa"
-include ".\Femtiki_vars.qpa"
+#include "..\..\inc\config.qpa"
+#include "..\..\inc\const.qpa"
+#include "..\..\inc\types.qpa"
+##include "..\..\inc\io_equates.qpa"
+#include ".\Femtiki_vars.qpa"
 
 # ---------------------------------------------------------------
 # ---------------------------------------------------------------
 
-macro macMBXPointerToHandle
-	xor a0,a0,0x12345678
-endm
+.macro macMBXPointerToHandle
+	xor %a0,%a0,0x12345678
+.endm
 
-macro macMBXHandleToPointer
-	xor. a0,a0,0x12345678
-endm
+.macro macMBXHandleToPointer
+	xor. %a0,%a0,0x12345678
+.endm
 
 # ---------------------------------------------------------------
 #	Description:
@@ -57,26 +57,26 @@ endm
 # Stack Space:
 #		1 word
 # Parameters:
-#		a0 = destination message
-#		a1 = source message
+#		%a0 = destination message
+#		%a1 = source message
 # ---------------------------------------------------------------
 
 CopyMsg:
-	push 0x8,0
-	load a2,MSGType[a1]
-	store a2,MSGType[a0]
-	load a2,MSGRetAdr[a1]
-	store a2,MSGRetAdr[a0]
-	load a2,MSGDestAdr[a1]
-	store a2,MSGDestAdr[a0]
-	store -1,MSGLink[a0]
-	load a2,MSGD1[a1]
-	store a2,MSGD1[a0]
-	load a2,MSGD2[a1]
-	store a2,MSGD2[a0]
-	load a2,MSGD3[a1]
-	store a2,MSGD3[a0]
-	pop 0x8,0
+	push %a2
+	load %a2,MSGType[%a1]
+	store %a2,MSGType[%a0]
+	load %a2,MSGRetAdr[%a1]
+	store %a2,MSGRetAdr[%a0]
+	load %a2,MSGDestAdr[%a1]
+	store %a2,MSGDestAdr[%a0]
+	storei -1,MSGLink[%a0]
+	load %a2,MSGD1[%a1]
+	store %a2,MSGD1[%a0]
+	load %a2,MSGD2[%a1]
+	store %a2,MSGD2[%a0]
+	load %a2,MSGD3[%a1]
+	store %a2,MSGD3[%a0]
+	pop %a2
 	blr
 
 # ---------------------------------------------------------------
@@ -87,19 +87,19 @@ CopyMsg:
 # Stack Space:
 #		1 word
 # Parameters:
-#		a0 = pointer to message
+#		%a0 = pointer to message
 # ---------------------------------------------------------------
 
 FreeMsg:
-	push 0x4,0
-	store MT_FREE,MSGType[a0]
-	store -1,MSGRetAdr[a0]
-	store -1,MSGDEstAdr[a0]
-	load a1,freeMSG;
-	store a1,MSGLink[a0]
-	store a0,freeMSG
-	amoadd r0,1,nMsgBlk
-	pop 0x4,0
+	push %a1
+	storei MT_FREE,MSGType[%a0]
+	storei -1,MSGRetAdr[%a0]
+	storei -1,MSGDEstAdr[%a0]
+	load %a1,freeMSG
+	store %a1,MSGLink[%a0]
+	store %a0,freeMSG
+	amoadd %r0,1,nMsgBlk
+	pop %a1
 	blr
 
 # ---------------------------------------------------------------
@@ -113,95 +113,95 @@ FreeMsg:
 #		SendMsg
 #		PostMsg
 # Parameters:
-#		a0 = pointer to mailbox
-#		a1 = pointer to message
+#		%a0 = pointer to mailbox
+#		%a1 = pointer to message
 # ---------------------------------------------------------------
 
 QueueMsg:
-	push br1
-	push 0x38,0					# save a2,a3,a4
-	loadi a4,E_Ok
-	move a2,a0
-	loadi a0,-1
+	push %br1
+	push %a2-%a4
+	loadi %a4,E_Ok
+	move %a2,%a0
+	loadi %a0,-1
 	bl LockMSGSemaphore
-	beq cr0,.0001
-	amoadd r0,1,MBXMQCount[a2]
-	load a0,MBXMQStrategy[a2]
-	cmp cr0,a0,MQS_UNLIMITED
-	beq cr0,.0002
-	cmp cr0,a0,MQS_NEWEST
-	bne cr0,.0005
+	beq %cr0,.0001
+	amoadd %r0,1,MBXMQCount[%a2]
+	load %a0,MBXMQStrategy[%a2]
+	cmpi %cr0,%a0,MQS_UNLIMITED
+	beq %cr0,.0002
+	cmpi %cr0,%a0,MQS_NEWEST
+	bne %cr0,.0005
 .0008:
-	load a0,MBXMQCount[a2]
-	load a3,MBXMQSize[a2]
-	cmpa cr0,a0,a3
+	load %a0,MBXMQCount[%a2]
+	load %a3,MBXMQSize[%a2]
+	cmpa %cr0,%a0,%a3
 	ble .0004
-	load a0,MBXMQHead[a2]
-	load a3,MSGLink[a0]
+	load %a0,MBXMQHead[%a2]
+	load %a3,MSGLink[%a0]
 	bl FreeMsg
-	amoadd r0,-1,MBXMQCount[a2]
-	store a3,MBXMQHead[a2]
-	load. a0,MBXMQMissed[a2]
-	bge cr0,.0007
-	amoadd r0,1,MBXMQMissed[a2]
+	amoadd %r0,-1,MBXMQCount[%a2]
+	store %a3,MBXMQHead[%a2]
+	load. %a0,MBXMQMissed[%a2]
+	bge %cr0,.0007
+	amoadd %r0,1,MBXMQMissed[%a2]
 .0007:
-	loadi r4,E_QueFull
+	loadi %a4,E_QueFull
 	b .0008
 .0005:
-	cmp cr0,a0,MQS_OLDEST
-	bne cr0,.0004
-	load a0,MBXMQCount[a2]
-	load a3,MBXMQSize[a2]
-	cmpa cr0,a0,a3
+	cmpi %cr0,%a0,MQS_OLDEST
+	bne %cr0,.0004
+	load %a0,MBXMQCount[%a2]
+	load %a3,MBXMQSize[%a2]
+	cmpa %cr0,%a0,%a3
 	ble .0009
-	move a0,a1										# free up passed in message
+	move %a0,%a1										# free up passed in message
 	bl FreeMsg
-	amoadd r0,-1,MBXMQCount[a2]
-	store a3,MBXMQHead[a2]
-	load. a0,MBXMQMissed[a2]
+	amoadd %r0,-1,MBXMQCount[%a2]
+	store %a3,MBXMQHead[%a2]
+	load. %a0,MBXMQMissed[%a2]
 .0009:
-	load a0,MBXMQCount[a2]
-	load a3,MBXMQSize[a2]
-	cmpa cr0,a0,a3
-	ble cr0,.00010
-	load a0,MBXMQHead[a2]
-	load a3,MBXMQTail[a2]
+	load %a0,MBXMQCount[%a2]
+	load %a3,MBXMQSize[%a2]
+	cmpa %cr0,%a0,%a3
+	ble %cr0,.00010
+	load %a0,MBXMQHead[%a2]
+	load %a3,MBXMQTail[%a2]
 .00012:
-	cmp cr0,a0,a3
-	beq cr0,.00011
-	move a1,a0										# msg = tmpmsg
-	move a0,MSGLink[a0]
+	cmp %cr0,%a0,%a3
+	beq %cr0,.00011
+	move %a1,%a0										# msg = tmpmsg
+	store %a0,MSGLink[%a0]
 	b .00012
 .00011:
-	store a1,MBXMQTail[a2]				# mbx->mq_tail = msg
+	store %a1,MBXMQTail[%a2]				# mbx->mq_tail = msg
 	bl FreeMsg										# FreeMsg(tmpmsg)
-	load. a0,MBXMQMissed[a2]
-	bge cr0,.00013
-	amoadd r0,1,MBXMQMissed[a2]
+	load. %a0,MBXMQMissed[%a2]
+	bge %cr0,.00013
+	amoadd %r0,1,MBXMQMissed[%a2]
 .00013:
-	amoadd r0,-1,MBXMQCount[a2]
+	amoadd %r0,-1,MBXMQCount[%a2]
 	loadi r4,E_QueFull
 .00010:
-	cmp cr0,a4,E_QueFull
-	beq cr0,.00014
+	cmpi %cr0,%a4,E_QueFull
+	beq %cr0,.00014
 .0002:
-	load. a0,MBXMQTail[a2]
-	blt cr0,.0003
-	mula a0,a0,MSG_SIZE						# x bytes per message
-	loada a3,messages[a0]
-	store a1,MSGLink[a3]					# 	message[mbx->mq_tail].link = msg
+	load. %a0,MBXMQTail[%a2]
+	blt %cr0,.0003
+	mulai %a0,%a0,MSG_SIZE						# x bytes per message
+	loada %a3,messages[%a0]
+	store %a1,MSGLink[%a3]					# 	message[mbx->mq_tail].link = msg
 	b .0004												# else
 .0003:
-	store a1,MBXMQHead[a2]				#		mbx->mq_head = msg
+	store %a1,MBXMQHead[%a2]				#		mbx->mq_head = msg
 .0004:
-	store a1,MBXMQTail[a2]				# mbx->mq_tail = msg
-	store -1,MSGLink[a1]					# msg->link = -1
+	store %a1,MBXMQTail[%a2]				# mbx->mq_tail = msg
+	storei -1,MSGLink[%a1]					# msg->link = -1
 .00014:
 	macUnlockMSGSemaphore
 .0001:
-	move a0,a4
-	pop 0x38,0
-	pop br1
+	move %a0,%a4
+	pop %a2-%a4
+	pop %br1
 	blr	
 
 # ---------------------------------------------------------------
@@ -217,26 +217,26 @@ QueueMsg:
 #		WaitMsg	-	"
 #		CheckMsg-	"
 # Parameters:
-#		a0 = pointer to mailbox
+#		%a0 = pointer to mailbox
 # ---------------------------------------------------------------
 
 DequeueMsg:
-	push 0xc,0								# save a1,a2
-	move a1,a0
-	loadi a0,0
-	load. a2,MBXMQCount[a1]
-	beq cr0,.0001
-	amoadd r0,-1,MBXMQCount[a1]
-	load. a0,MBXMQHead[a1]
-	blt cr0,.0001
-	load. a2,MSGLink[a0]
-	store a2,MBXMQHead[a1]
-	bge cr0,.0002
-	store -1,MBXMQTail[a1]
+	push %a1-%a2
+	move %a1,%a0
+	loadi %a0,0
+	load. %a2,MBXMQCount[%a1]
+	beq %cr0,.0001
+	amoadd %r0,-1,MBXMQCount[%a1]
+	load. %a0,MBXMQHead[%a1]
+	blt %cr0,.0001
+	load. %a2,MSGLink[%a0]
+	store %a2,MBXMQHead[%a1]
+	bge %cr0,.0002
+	storei -1,MBXMQTail[%a1]
 .0002:
-	store a0,MSGLink[a0]
+	store %a0,MSGLink[%a0]
 .0001:
-	pop 0xc,0
+	pop %a1-%a2
 	blr
 
 # ---------------------------------------------------------------
@@ -248,68 +248,68 @@ DequeueMsg:
 #	Assumptions:
 #		Mailbox parameter is valid.
 # Parameters:
-#		a0 = pointer to mailbox
+#		%a0 = pointer to mailbox
 # Returns:
-#		a0 = error code
-#		a1 = task
+#		%a0 = error code
+#		%a1 = task
 # ---------------------------------------------------------------
 
 DequeTaskFromMbx:
-	cmp cr0,a0,0			# mbx null?
-	beq cr0,.0001
-	push 0x38,0				# save a2,a3,a4
-	move a2,a0
-	loadi a0,-1
+	cmpi %cr0,%a0,0			# mbx null?
+	beq %cr0,.0001
+	push %a2-%a4				# save %a2,%a3,%a4
+	move %a2,%a0
+	loadi %a0,-1
 	bl LockMSGSemaphore
-	beq cr0,.0006
-	load a0,MBXTQHead[a2]
-	cmp cr0,a1,-1
-	bne cr0,.0002
+	beq %cr0,.0006
+	load %a0,MBXTQHead[%a2]
+	cmpi %cr0,%a1,-1
+	bne %cr0,.0002
 	macUnlockMSGSemaphore
-	loadi a1,0
-	loadi a0,E_NoTask
-	pop 0x38,0
-	pop br1
+	loadi %a1,0
+	loadi %a0,E_NoTask
+	pop %a2-%a4
+	pop %br1
 	blr
 .0002:
-	amoadd r0,-1,MBXTQCount[a2]
-	load a3,MBXTQHead[a2]
-	move a1,a3
-	load. a4,TCBMBQNext[a3]
-	store a4,MBXTQHead[a2]
-	ble cr0,.0003
-	store -1,TCBMBQPrev[a3]
+	amoadd %r0,-1,MBXTQCount[%a2]
+	load %a3,MBXTQHead[%a2]
+	move %a1,%a3
+	load. %a4,TCBMBQNext[%a3]
+	store %a4,MBXTQHead[%a2]
+	ble %cr0,.0003
+	store -1,TCBMBQPrev[%a3]
 	b .0004
 .0003:
-	store -1,MBXTQTail[a2]
+	storei -1,MBXTQTail[%a2]
 .0004:
 	macUnlockMSGSemaphore
-	cmp cr0,a3,0
-	beq cr0,.0005
-	load a4,TCBStatus[a3]
-	and. r0,TS_TIMEOUT,a4
-	beq cr0,.0007
-	move a0,a3
+	cmp %cr0,%a3,0
+	beq %cr0,.0005
+	load %a4,TCBStatus[%a3]
+	and. %r0,TS_TIMEOUT,%a4
+	beq %cr0,.0007
+	move %a0,%a3
 	bl RemoveFromTimeoutList
 .0007:
-	store -1,TCBMBQNext[a3]
-	store -1,TCBMBQPrev[a3]
-	store -1,TCBhWaitMbx[a3]	# no longer waiting at mailbox
-	amoandb r0,~TS_WAITMSG,TCBStatus[a3]
+	storei -1,TCBMBQNext[%a3]
+	storei -1,TCBMBQPrev[%a3]
+	storei -1,TCBhWaitMbx[%a3]	# no longer waiting at mailbox
+	amoandb %r0,~TS_WAITMSG,TCBStatus[%a3]
 .0005:
-	loadi a0,E_Ok
-	pop 0x38,0
-	pop br1
+	loadi %a0,E_Ok
+	pop %a2-%a4
+	pop %br1
 	blr
 	# Here the semaphore could not be locked
 .0006:
-	loadi a0,E_Busyed
-	pop 0x38,0
-	pop br1
+	loadi %a0,E_Busyed
+	pop %a2-%a4
+	pop %br1
 	blr
 	# Here there was a problem with an argument
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
   blr
 
 # ---------------------------------------------------------------
@@ -318,61 +318,61 @@ DequeTaskFromMbx:
 #	queue the eight most recent messages.
 #
 # Parameters:
-#		a1 = pointer to place to store mailbox handle
+#		%a1 = pointer to place to store mailbox handle
 # ---------------------------------------------------------------
 
 FMTK_AllocMbx:
-	cmp cr0,a1,0
-	bne cr0,.0001
-	loadi a0,E_Arg
+	cmpi %cr0,%a1,0
+	bne %cr0,.0001
+	loadi %a0,E_Arg
 	blr
 .0001:
-	push 0x18,0						# save a2,a3
-	loadi a0,-1
+	push %a2-%a3					# save %a2,%a3
+	loadi %a0,-1
 	bl LockMSGSemaphore
-	beq cr0,.0002
-	load. a0,freeMBX
-	beq cr0,.0003
-	cmp cr0,a0,-1
-	bne cr0,.0004
+	beq %cr0,.0002
+	load. %a0,freeMBX
+	beq %cr0,.0003
+	cmpi %cr0,%a0,-1
+	bne %cr0,.0004
 .0003:
 	macUnlockMSGSemaphore
-	loadi a0,E_NoMoreMbx
-	pop 0x18,0
-	pop br1
+	loadi %a0,E_NoMoreMbx
+	pop %a2-%a3
+	pop %br1
 	blr
 .0004:
-	load a2,MBXLink[a0]
-	store a2,freeMBX
-	amoadd r0,-1,nMailbox
+	load %a2,MBXLink[%a0]
+	store %a2,freeMBX
+	amoadd %r0,-1,nMailbox
 	macUnlockMSGSemaphore
-	move a2,a0
+	move %a2,%a0
 	macMBXPointerToHandle
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a0,[a1]						# do the store to the proper address space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %a0,[%a1]						# do the store to the proper address space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
-	move a1,a2
+	move %a1,%a2
 	bl GetAppHandle
-	stb a0,MBXOwner[a1]
-	store -1,MBXTQHead[a1]
-	store -1,MBXTQTail[a1]
-	store -1,MBXMQHead[a1]
-	store -1,MBXMQTail[a1]
-	store r0,MBXTQCount[a1]
-	store r0,MBXMQCount[a1]
-	store r0,MBXMQMissed[a1]
-	store 8,MBXMQSize[a1]
-	store MQS_NEWEST,MBXMQStrategy[a1]
-	loadi a0,E_Ok
-	pop 0xc,0
-	pop br1
+	stb %a0,MBXOwner[%a1]
+	storei -1,MBXTQHead[%a1]
+	storei -1,MBXTQTail[%a1]
+	storei -1,MBXMQHead[%a1]
+	storei -1,MBXMQTail[%a1]
+	store %r0,MBXTQCount[%a1]
+	store %r0,MBXMQCount[%a1]
+	store %r0,MBXMQMissed[%a1]
+	storei 8,MBXMQSize[%a1]
+	storei MQS_NEWEST,MBXMQStrategy[%a1]
+	loadi %a0,E_Ok
+	pop %a2-%a3
+	pop %br1
 	blr
 .0002:
-	loadi a0,E_Busy
-	pop 0x18,0
-	pop br1
+	loadi %a0,E_Busy
+	pop %a2-%a3
+	pop %br1
 	blr
 
 # ---------------------------------------------------------------
@@ -382,66 +382,66 @@ FMTK_AllocMbx:
 #	dequeued. 
 #
 # Parameters:
-#		a1 = handle of mailbox
+#		%a1 = handle of mailbox
 # ---------------------------------------------------------------
 
 FMTK_FreeMbx:
-	move a0,a1
+	move %a0,%a1
 	macMBXHandleToPointer
-	beq cr0,.0001
-	push br1
-	push 0xc,0						# save a1,a2
-	move a1,a0
-	loadi a0,-1
+	beq %cr0,.0001
+	push %br1
+	push %a1-%a2						# save %a1,%a2
+	move %a1,%a0
+	loadi %a0,-1
 	bl LockMSGSemaphore
-	beq cr0,.0002
+	beq %cr0,.0002
 	bl GetAppHandle
-	ldbz. a2,MBXOwner[a1]
-	beq cr0,.0003
-	cmp cr0,a0,a2
-	beq cr0,.0003
+	ldbz. %a2,MBXOwner[%a1]
+	beq %cr0,.0003
+	cmp %cr0,%a0,%a2
+	beq %cr0,.0003
 	macUnlockMSGSemaphore
-	loadi a0,E_NotOwner
-	pop 0xc,0
-	pop br1
+	loadi %a0,E_NotOwner
+	pop %a1-%a2
+	pop %br1
 	blr
 	# Free up any queued messages
 .0003:
-	move a0,a1
+	move %a0,%a1
 	bl DequeueMsg
-	cmp cr0,a0,0
-	beq cr0,.0004
+	cmpi %cr0,%a0,0
+	beq %cr0,.0004
 	bl FreeMsg
 	b .0003
 .0004:
-	move a0,a1
-	move a2,a1
+	move %a0,%a1
+	move %a2,%a1
 	bl DequeTaskFromMbx
-	move a0,a1
-	move a1,a2
-	beq cr0,.0005
-	store MT_NONE,TCBMsg+MSGType[a0]
-	and. r0,TS_TIMEOUT,TCBStatus[a0]
-	beq cr0,.0006
+	move %a0,%a1
+	move %a1,%a2
+	beq %cr0,.0005
+	storei MT_NONE,TCBMsg+MSGType[%a0]
+	amoand. %r0,TS_TIMEOUT,TCBStatus[%a0]
+	beq %cr0,.0006
 	bl RemoveFromTimeoutList
 .0006:
 	bl InsertIntoReadyQueue
-	move a1,a2
+	move %a1,%a2
 	b .0004
 .0005:
-	load a0,freeMBX
-	store a0,MBXLink[a1]
-	store a1,freeMBX
-	amoadd r0,1,nMailbox
+	load %a0,freeMBX
+	store %a0,MBXLink[%a1]
+	store %a1,freeMBX
+	amoadd %r0,1,nMailbox
 	macUnlockMSGSemaphore
-	loadi a0,E_Ok
-	pop 0xc,0
-	pop br1
+	loadi %a0,E_Ok
+	pop %a1-%a2
+	pop %br1
 	blr
 .0002:
-	loadi a0,E_Busy
-	pop 0xc,0
-	pop br1
+	loadi %a0,E_Busy
+	pop %a1-%a2
+	pop %br1
 	blr
 	
 # ---------------------------------------------------------------
@@ -450,138 +450,138 @@ FMTK_FreeMbx:
 # ---------------------------------------------------------------
 
 SetMbxMsgQueStrategy:
-	cmp cr0,a0,0
-	beq cr0,.0001
-	cmpa cr0,a1,2
-	bgt cr0,.0001
-	push br1
-	push 0x30,0						# save a3,a4
-	move a3,a0
-	loadi a0,-1
+	cmpi %cr0,%a0,0
+	beq %cr0,.0001
+	cmpai %cr0,%a1,2
+	bgt %cr0,.0001
+	push %br1
+	push %a3-%a4						# save %a3,%a4
+	move %a3,%a0
+	loadi %a0,-1
 	bl LockMSGSemaphore
-	beq cr0,.0002
+	beq %cr0,.0002
 	# Check if this app owns the mailbox
 	bl GetAppHandle
-	beq cr0,.0003
-	ldbz a4,MBXOwner[a3]
-	cmp cr0,a0,a3
-	beq cr0,.0003
+	beq %cr0,.0003
+	ldbz %a4,MBXOwner[%a3]
+	cmp %cr0,%a0,%a3
+	beq %cr0,.0003
 	macUnlockMSGSemaphore
-	loadi a0,E_NotOwner
-	pop 0x30,0
-	pop br1
+	loadi %a0,E_NotOwner
+	pop %a3-%a4
+	pop %br1
 	blr
 .0003:
-	store a1,MBXMQStrategy[a3]
-	store a2,MBXMQSize[a3]
+	store %a1,MBXMQStrategy[%a3]
+	store %a2,MBXMQSize[%a3]
 	macUnlockMSGSemaphore
-	loadi a0,E_Ok
-	pop 0x30,0
-	pop br1
+	loadi %a0,E_Ok
+	pop %a3-%a4
+	pop %br1
 	blr
 .0002:
-	loadi a0,E_Busy
-	pop 0x30,0
-	pop br1
+	loadi %a0,E_Busy
+	pop %a3-%a4
+	pop %br1
 	blr
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
 	blr
 
 # ---------------------------------------------------------------
 #	Description:
 #		Send a message.
 # Parameters:
-#		a1 = handle of mailbox
-#		a2 = message data #1
-#		a3 = message data #2
-#		a4 = message data #3
+#		%a1 = handle of mailbox
+#		%a2 = message data #1
+#		%a3 = message data #2
+#		%a4 = message data #3
 # ---------------------------------------------------------------
 
 FMTK_SendMsg:
-	move a0,a1
+	move %a0,%a1
 	macMBXHandleToPointer
-	cmp cr0,a0,0
-	beq cr0,.0001
-	push br1
-	push 0x1C0,0						# Save a5,a6,a7
-	loadi a7,0							# thrd = null
-	move a5,a0
-	loadi a0,-1
+	cmpi %cr0,%a0,0
+	beq %cr0,.0001
+	push %br1
+	push %a5-%a7						# Save %a5,%a6,%a7
+	loadi %a7,0							# thrd = null
+	move %a5,%a0
+	loadi %a0,-1
 	bl LockMSGSemaphore
-	beq cr0,.0002
-	load. a0,MBXOwner[a5]
-	bge cr0,.0003
-	cmp cr0,a0,NR_ACB
-	ble cr0,.0003
+	beq %cr0,.0002
+	load. %a0,MBXOwner[%a5]
+	bge %cr0,.0003
+	cmpi %cr0,%a0,NR_ACB
+	ble %cr0,.0003
 	macUnlockMSGSemaphore
-	loadi a0,E_NotAlloc
-	pop 0xe0,0
-	pop br1
+	loadi %a0,E_NotAlloc
+	pop %a5-%a7
+	pop %br1
 	blr
 .0003:
-	load. a0,freeMSG
-	beq cr0,.0005
-	cmp cr0,a0,-1
-	bne cr0,.0004
+	load. %a0,freeMSG
+	beq %cr0,.0005
+	cmpi %cr0,%a0,-1
+	bne %cr0,.0004
 .0005:
 	macUnlockMSGSemaphore
-	loadi a0,E_NoMoreMsgBlks
-	pop 0xe0,0
-	pop br1
+	loadi %a0,E_NoMoreMsgBlks
+	pop %a5-%a7
+	pop %br1
 	blr
 .0004:
-	move a6,a0
-	load a0,MSGLink[a6]
-	store a0,freeMSG
-	amoadd r0,-1,nMsgBlk
+	move %a6,%a0
+	load %a0,MSGLink[%a6]
+	store %a0,freeMSG
+	amoadd %r0,-1,nMsgBlk
 	bl GetAppHandle
-	stb a0,MSGRetAdr[a6]
-	store a5,MSGDestAdr[a6]
-	store MBT_DATA,MSGType[a6]
-	store a2,MSGD1[a6]
-	store a3,MSGD2[a6]
-	store a4,MSGD3[a6]
-	move a0,a6
+	stb %a0,MSGRetAdr[%a6]
+	store %a5,MSGDestAdr[%a6]
+	storei MBT_DATA,MSGType[%a6]
+	store %a2,MSGD1[%a6]
+	store %a3,MSGD2[%a6]
+	store %a4,MSGD3[%a6]
+	move %a0,%a6
 	bl DequeTaskFromMbx
-	move a7,a1					# a7 = pointer to dequeued task
+	move %a7,%a1					# %a7 = pointer to dequeued task
 	macUnlockMSGSemaphore
 .0002:
-	cmp cr0,a7,0
-	bne cr0,.0006
-	move a0,a5					# a0 = pointer to mailbox
-	move a1,a6					# a1 = pointer to message
+	cmpi %cr0,%a7,0
+	bne %cr0,.0006
+	move %a0,%a5					# %a0 = pointer to mailbox
+	move %a1,%a6					# %a1 = pointer to message
 	bl QueueMsg
-	pop 0xe0,0
-	pop br1
+	pop %a5-%a7
+	pop %br1
 	blr
 .0006:
-	loadi a0,-1
+	loadi %a0,-1
 	bl LockMSGSemaphore
-	beq cr0,.0008
-	loada a0,TCBMsg[a7]
-	move a1,a6
+	beq %cr0,.0008
+	loada %a0,TCBMsg[%a7]
+	move %a1,%a6
 	bl CopyMsg
 	bl FreeMsg
-	load a0,TCBStatus[a7]
-	and. r0,a0,TS_TIMEOUT
-	beq cr0,.0007
-	move a0,a7
+	load %a0,TCBStatus[%a7]
+	and. %r0,%a0,TS_TIMEOUT
+	beq %cr0,.0007
+	move %a0,%a7
 	bl RemoveFromTimeoutList
 .0007:
-	move a0,a7
+	move %a0,%a7
 	bl InsertIntoReadyQueue
 	macUnlockMSGSemaphore
 	# The ready queue changed, maybe a different task is higher priority,
 	# invoke scheduling
 	bli FemtikiTimerISR
 .0008:
-	loadi a0,E_Ok
-	pop 0xe0,0
-	pop br1
+	loadi %a0,E_Ok
+	pop %a5-%a7
+	pop %br1
 	blr
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
 	blr
 	
 
@@ -595,86 +595,86 @@ FMTK_SendMsg:
 # ---------------------------------------------------------------
 
 FMTK_PostMsg:
-	move a0,a1
+	move %a0,%a1
 	macMBXHandleToPointer
-	cmp cr0,a0,0
-	beq cr0,.0001
-	push br1
-	push 0x1C0,0						# Save a5,a6,a7
-	loadi a7,0							# thrd = null
-	move a5,a0
-	loadi a0,-1
+	cmpi %cr0,%a0,0
+	beq %cr0,.0001
+	push %br1
+	push %a5-%a7						# Save %a5,%a6,%a7
+	loadi %a7,0							# thrd = null
+	move %a5,%a0
+	loadi %a0,-1
 	bl LockMSGSemaphore
-	beq cr0,.0002
-	load. a0,MBXOwner[a5]
-	bge cr0,.0003
-	cmp cr0,a0,NR_ACB
-	ble cr0,.0003
+	beq %cr0,.0002
+	load. %a0,MBXOwner[%a5]
+	bge %cr0,.0003
+	cmpi %cr0,%a0,NR_ACB
+	ble %cr0,.0003
 	macUnlockMSGSemaphore
-	loadi a0,E_NotAlloc
-	pop 0xe0,0
-	pop br1
+	loadi %a0,E_NotAlloc
+	pop %a5-%a7
+	pop %br1
 	blr
 .0003:
-	load. a0,freeMSG
-	beq cr0,.0005
-	cmp cr0,a0,-1
-	bne cr0,.0004
+	load. %a0,freeMSG
+	beq %cr0,.0005
+	cmpi %cr0,%a0,-1
+	bne %cr0,.0004
 .0005:
 	macUnlockMSGSemaphore
-	loadi a0,E_NoMoreMsgBlks
-	pop 0xe0,0
-	pop br1
+	loadi %a0,E_NoMoreMsgBlks
+	pop %a5-%a7
+	pop %br1
 	blr
 .0004:
-	move a6,a0
-	load a0,MSGLink[a6]
-	store a0,freeMSG
-	amoadd r0,-1,nMsgBlk
+	move %a6,%a0
+	load %a0,MSGLink[%a6]
+	store %a0,freeMSG
+	amoadd %r0,-1,nMsgBlk
 	bl GetAppHandle
-	stb a0,MSGRetAdr[a6]
-	store a5,MSGDestAdr[a6]
-	store MBT_DATA,MSGType[a6]
-	store a2,MSGD1[a6]
-	store a3,MSGD2[a6]
-	store a4,MSGD3[a6]
-	move a0,a6
+	stb %a0,MSGRetAdr[%a6]
+	store %a5,MSGDestAdr[%a6]
+	storei MBT_DATA,MSGType[%a6]
+	store %a2,MSGD1[%a6]
+	store %a3,MSGD2[%a6]
+	store %a4,MSGD3[%a6]
+	move %a0,%a6
 	bl DequeTaskFromMbx
-	move a7,a1					# a7 = pointer to dequeued task
+	move %a7,%a1					# %a7 = pointer to dequeued task
 	macUnlockMSGSemaphore
 .0002:
-	cmp cr0,a7,0
-	bne cr0,.0006
-	move a0,a5					# a0 = pointer to mailbox
-	move a1,a6					# a1 = pointer to message
+	cmpi %cr0,%a7,0
+	bne %cr0,.0006
+	move %a0,%a5					# %a0 = pointer to mailbox
+	move %a1,%a6					# %a1 = pointer to message
 	bl QueueMsg
-	pop 0xe0,0
-	pop br1
+	pop %a5-%a7
+	pop %br1
 	blr
 .0006:
-	loadi a0,-1
+	loadi %a0,-1
 	bl LockMSGSemaphore
-	beq cr0,.0008
-	loada a0,TCBMsg[a7]
-	move a1,a6
+	beq %cr0,.0008
+	loada %a0,TCBMsg[%a7]
+	move %a1,%a6
 	bl CopyMsg
 	bl FreeMsg
-	load a0,TCBStatus[a7]
-	and. r0,a0,TS_TIMEOUT
-	beq cr0,.0007
-	move a0,a7
+	load %a0,TCBStatus[%a7]
+	and. %r0,%a0,TS_TIMEOUT
+	beq %cr0,.0007
+	move %a0,%a7
 	bl RemoveFromTimeoutList
 .0007:
-	move a0,a7
+	move %a0,%a7
 	bl InsertIntoReadyQueue
 	macUnlockMSGSemaphore
 .0008:
-	loadi a0,E_Ok
-	pop 0xe0,0
-	pop br1
+	loadi %a0,E_Ok
+	pop %a5-%a7
+	pop %br1
 	blr
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
 	blr
 
 # ---------------------------------------------------------------
@@ -683,112 +683,113 @@ FMTK_PostMsg:
 #	will wait indefinately for a message.
 #
 # Parameters:
-#		a1 = mailbox handle
-#		a2 = pointer to place to store D1
-#		a3 = pointer to place to store D2
-#		a4 = pointer to place to store D3
-#		a5 = time limit
+#		%a1 = mailbox handle
+#		%a2 = pointer to place to store D1
+#		%a3 = pointer to place to store D2
+#		%a4 = pointer to place to store D3
+#		%a5 = time limit
 # ---------------------------------------------------------------
 
 FMTK_WaitMsg:
-	move a0,a1
+	move %a0,%a1
 	macMBXHandleToPointer
-	cmp cr0,a0,0
-	beq cr0,.0001
-	push br1
-	push 0x380,0						# Save a6,a7,a8
-	loadi a7,0							# thrd = null
-	move a6,a0							# a6 = pointer to mailbox
-	loadi a0,-1
+	cmpi %cr0,%a0,0
+	beq %cr0,.0001
+	push %br1
+	push %a6-%t1						# Save %a6,%a7,%t0,%t1
+	loadi %a7,0							# thrd = null
+	move %a6,%a0							# %a6 = pointer to mailbox
+	loadi %a0,-1
 	bl LockMSGSemaphore
-	beq cr0,.0002
-	load. a0,MBXOwner[a6]
-	bge cr0,.0003
-	cmp cr0,a0,NR_ACB
-	ble cr0,.0003
+	beq %cr0,.0002
+	load. %a0,MBXOwner[%a6]
+	bge %cr0,.0003
+	cmpi %cr0,%a0,NR_ACB
+	ble %cr0,.0003
 	macUnlockMSGSemaphore
-	loadi a0,E_NotAlloc
-	pop 0x380,0
-	pop br1
+	loadi %a0,E_NotAlloc
+	pop %a6-%t1
+	pop %br1
 	blr
 .0003:
-	move a0,a6
+	move %a0,%a6
 	bl DequeueMsg
 	macUnlockMSGSemaphore
 .0002:
-	cmp cr0,a0,0
-	beq cr0,.0004
-	cmp cr0,a2,0
-	beq cr0,.0005
-	load a8,MSGD1[a0]
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+	cmpi %cr0,%a0,0
+	beq %cr0,.0004
+	cmpi %cr0,%a2,0
+	beq %cr0,.0005
+	load %t0,MSGD1[%a0]
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a8,[a2]						# do the store to the proper address space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %t0,[%a2]						# do the store to the proper address space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
 .0005:
-	cmp cr0,a3,0
-	beq cr0,.0006
-	load a8,MSGD2[a0]
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+	cmpi %cr0,%a3,0
+	beq %cr0,.0006
+	load %t0,MSGD2[%a0]
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a8,[a3]						# do the store to the proper address space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %t0,[%a3]						# do the store to the proper address space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
 .0006:
-	cmp cr0,a4,0
-	beq cr0,.0007
-	load a8,MSGD3[a0]
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+	cmp %cr0,%a4,0
+	beq %cr0,.0007
+	load %t0,MSGD3[%a0]
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a8,[a4]						# do the store to the proper address space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %t0,[%a4]						# do the store to the proper address space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
 .0007:
-	move a8,a0
-	loadi a0,-1
+	move %t0,%a0
+	loadi %a0,-1
 	bl LockMSGSemaphore
-	beq cr0,.0008
-	move a0,a8
+	beq %cr0,.0008
+	move %a0,%t0
 	bl FreeMsg
 	macUnlockMSGSemaphore
 .0008:
-	loadi a0,E_Ok
-	pop 0x380,0
-	pop br1
+	loadi %a0,E_Ok
+	pop %a6-%t1
+	pop %br1
 	blr
 	# Here there was no messag available
 .0004:
 	bl GetRunningTCBPtr
 	bl RemoveFromReadyList
-	amoor r0,TS_WAITMSG,TCBStatus[a0]
-	stptr a1,TCBhWaitMbx[a0]
-	stptr -1,TCBMBQNext[a0]
-	move a8,a0								# a8 = thread
-	loadi a0,-1
+	amoor %r0,TS_WAITMSG,TCBStatus[%a0]
+	stptr %a1,TCBhWaitMbx[%a0]
+	loadi %t1,-1
+	stptr %t0,TCBMBQNext[%a0]
+	move %t0,%a0								# %t0 = thread
+	loadi %a0,-1
 	bl LockMSGSemaphore
-		cmp cr0,a1,0
-		beq cr0,.0009
-		cmp cr0,a1,-1
-		bne cr0,.0010
+		cmpi %cr0,%a1,0
+		beq %cr0,.0009
+		cmpi %cr0,%a1,-1
+		bne %cr0,.0010
 .0009:
-		stptr -1,TCBMBXPrev[a8]
-		stptr a8,MBXTQHead[a1]
-		stptr a8,MBXTQTail[a1]
-		store 1,MBXTQCount[a1]
+		stptr %t1,TCBMBXPrev[%t0]
+		stptr %t0,MBXTQHead[%a1]
+		stptr %t0,MBXTQTail[%a1]
+		store %t1,MBXTQCount[%a1]
 		b .0011
 .0010:
-		load a7,MBXTQTail[a1]
-		stptr a7,TCBMBXPrev[a8]
-		stptr a8,TCBMBQNext[a7]
-		stptr a8,MBXTQTail[a1]
-		amoadd r0,1,MBXTQCount[a1]
+		load %a7,MBXTQTail[%a1]
+		stptr %a7,TCBMBXPrev[%t0]
+		stptr %t0,TCBMBQNext[%a7]
+		stptr %t0,MBXTQTail[%a1]
+		amoadd %r0,1,MBXTQCount[%a1]
 .0011:
 	macUnlockMSGSemaphore
-	cmp cr0,a5,0							# is there a time limit specified?
-	ble cr0,.0012
-	move a0,a8
-	move a1,a5
+	cmpi %cr0,%a5,0							# is there a time limit specified?
+	ble %cr0,.0012
+	move %a0,%t0
+	move %a1,%a5
 	bl InsertIntoTimeoutList
 	# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # Reschedule will cause control to pass to another thread. This thread is
@@ -797,52 +798,53 @@ FMTK_WaitMsg:
 	# Control will return here as a result of a SendMsg or a timeout expiring
 	# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	bl GetRunningTCBPtr
-	load a8,TCBMsg+MSGType[a0]
-	cmp cr0,a8,MT_NONE
-	bne cr0,.0012
-	loadi a0,E_NoMsg
-	pop 0x380,0
-	pop br1
+	load %t0,TCBMsg+MSGType[%a0]
+	cmpi %cr0,%t0,MT_NONE
+	bne %cr0,.0012
+	loadi %a0,E_NoMsg
+	pop %a6-%t1
+	pop %br1
 	blr
 .0012:
-	load a0,TCBMsg[a0]
-	store MT_NONE,MSGType[a0]
-	stptr -1,MSGDestAdr[a0]
-	stptr -1,MSGRetAdr[a0]
-	cmp cr0,a2,0
-	beq cr0,.0013
-	load a8,MSGD1[a0]
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+	load %a0,TCBMsg[%a0]
+	storei MT_NONE,MSGType[%a0]
+	loadi %t1,-1
+	stptr %t1,MSGDestAdr[%a0]
+	stptr %t1,MSGRetAdr[%a0]
+	cmpi %cr0,%a2,0
+	beq %cr0,.0013
+	load %t0,MSGD1[%a0]
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a8,[a2]						# do the store to the proper address space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %t0,[%a2]						# do the store to the proper address space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
 .0013:
-	cmp cr0,a3,0
-	beq cr0,.0014
-	load a8,MSGD2[a0]
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+	cmp %cr0,%a3,0
+	beq %cr0,.0014
+	load %t0,MSGD2[%a0]
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a8,[a3]						# do the store to the proper address space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %t0,[%a3]						# do the store to the proper address space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
 .0014:
-	cmp cr0,a4,0
-	beq cr0,.0015
-	load a8,MSGD3[a0]
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+	cmpi %cr0,%a4,0
+	beq %cr0,.0015
+	load %t0,MSGD3[%a0]
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a8,[a4]						# do the store to the proper address space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %t0,[%a4]						# do the store to the proper address space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
 .0015:
-	loadi a0,E_Ok
-	pop 0x380,0
-	pop br1
+	loadi %a0,E_Ok
+	pop %a6-%t1
+	pop %br1
 	blr
 	# Bad arg return
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
 	blr
 
 # ----------------------------------------------------------------------------
@@ -850,14 +852,14 @@ FMTK_WaitMsg:
 #     Look for a message in the queue but don't remove it from the queue.
 #     This is a convenince wrapper for CheckMsg().
 # Parameters:
-#		a1 = mailbox handle
-#		a2 = pointer to place to store D1
-#		a3 = pointer to place to store D2
-#		a4 = pointer to place to store D3
+#		%a1 = mailbox handle
+#		%a2 = pointer to place to store D1
+#		%a3 = pointer to place to store D2
+#		%a4 = pointer to place to store D3
 # ----------------------------------------------------------------------------
 
 FMTK_PeekMsg:
-	loadi a5,0
+	loadi %a5,0
 	# Fall through
 
 # ---------------------------------------------------------------
@@ -868,93 +870,93 @@ FMTK_PeekMsg:
 #	mailbox.
 #
 # Parameters:
-#		a1 = mailbox handle
-#		a2 = pointer to place to store D1
-#		a3 = pointer to place to store D2
-#		a4 = pointer to place to store D3
-#		a5 = 1 = remove from queue
+#		%a1 = mailbox handle
+#		%a2 = pointer to place to store D1
+#		%a3 = pointer to place to store D2
+#		%a4 = pointer to place to store D3
+#		%a5 = 1 = remove from queue
 # ---------------------------------------------------------------
 
 FMTK_CheckMsg:
-	move a0,a1
+	move %a0,%a1
 	macMBXHandleToPointer
-	cmp cr0,a0,0
-	beq cr0,.0001
-	push br1
-	push 0x380,0						# Save a6,a7,a8
-	move a6,a0							# a6 = pointer to mailbox
-	loadi a7,0
-	loadi a0,-1
+	cmpi %cr0,%a0,0
+	beq %cr0,.0001
+	push %br1
+	push %a6-%t0						# Save %a6,%a7,%t0
+	move %a6,%a0							# %a6 = pointer to mailbox
+	loadi %a7,0
+	loadi %a0,-1
 	bl LockMSGSemaphore
-	beq cr0,.0002
-	load. a0,MBXOwner[a6]
-	bge cr0,.0003
-	cmp cr0,a0,NR_ACB
-	ble cr0,.0003
+	beq %cr0,.0002
+	load. %a0,MBXOwner[%a6]
+	bge %cr0,.0003
+	cmpi %cr0,%a0,NR_ACB
+	ble %cr0,.0003
 	macUnlockMSGSemaphore
-	loadi a0,E_NotAlloc
-	pop 0x380,0
-	pop br1
+	loadi %a0,E_NotAlloc
+	pop %a6-%t0
+	pop %br1
 	blr
 .0003:
-	cmp cr0,a5,1
-	bne cr0,.0004
-	move a0,a6
+	cmpi %cr0,%a5,1
+	bne %cr0,.0004
+	move %a0,%a6
 	bl DequeueMsg
 	b .0005
 .0004:
-	load a7,MBXMQHead[a6]
+	load %a7,MBXMQHead[%a6]
 .0005:
 	macUnlockMSGSemaphore
 .0002:
-	cmp cr0,a7,0
-	bne cr0,.0006
-	loadi a0,E_NoMsg
-	pop 0x380,0
-	pop br1
+	cmpi %cr0,%a7,0
+	bne %cr0,.0006
+	loadi %a0,E_NoMsg
+	pop %a6-%t0
+	pop %br1
 	blr
 .0006:
-	cmp cr0,a2,0
-	beq cr0,.0013
-	load a8,MSGD1[a7]
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+	cmpi %cr0,%a2,0
+	beq %cr0,.0013
+	load %t0,MSGD1[%a7]
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a8,[a2]						# do the store to the proper address space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %t0,[%a2]						# do the store to the proper address space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
 .0013:
-	cmp cr0,a3,0
-	beq cr0,.0014
-	load a8,MSGD2[a7]
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+	cmpi %cr0,%a3,0
+	beq %cr0,.0014
+	load %t0,MSGD2[%a7]
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a8,[a3]						# do the store to the proper address space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %t0,[%a3]						# do the store to the proper address space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
 .0014:
-	cmp cr0,a4,0
-	beq cr0,.0015
-	load a8,MSGD3[a7]
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+	cmpi %cr0,%a4,0
+	beq %cr0,.0015
+	load %t0,MSGD3[%a7]
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a8,[a4]						# do the store to the proper address space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %t0,[%a4]						# do the store to the proper address space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
 .0015:
-	cmp cr0,a5,1						# remove msg from que?
-	bne cr0,.0016
-	loadi a0,-1
+	cmpi %cr0,%a5,1						# remove msg from que?
+	bne %cr0,.0016
+	loadi %a0,-1
 	bl LockMSGSemaphore
-	beq cr0,.0016
-	move a0,a7
+	beq %cr0,.0016
+	move %a0,%a7
 	bl FreeMsg
 	macUnlockMSGSemaphore
 .0016:
-	loadi a0,E_Ok
-	pop 0x380,0
-	pop br1
+	loadi %a0,E_Ok
+	pop %a6-%t0
+	pop %br1
 	blr
 	# Bad arg return
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
 	blr

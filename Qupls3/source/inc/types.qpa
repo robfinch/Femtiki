@@ -38,17 +38,22 @@
 .set OBJSize,4
 .set OBJTypenum,8
 .set OBJID,12
-.set OBJStat,16    		# WHITE, GREY, BLACK
-.set OBJScavcnt,20    # scavange count
+# WHITE, GREY, BLACK
+.set OBJStat,16 
+# scavange count   		
+.set OBJScavcnt,20    
 .set OBJOwningMap,24
 .set OBJCollectionIndex,28
-.set OBJUsedInMap,32  # used in map
-.set OBJFWAddr,36    	# forwarding address
+# used in map
+.set OBJUsedInMap,32
+# forwarding address  
+.set OBJFWAddr,36    	
 .set OBJFinalizer,40
 .set OBJ_SIZE,44
 
 # Task Control Block
-.set TCBIntRegs,000    # integer register set storage area
+# integer register set storage area
+.set TCBIntRegs,000    
 # Condition Registers
 .set TCBxCR0,4
 .set TCBxCR1,5
@@ -169,9 +174,13 @@
 .set TCBTsCmd,856
 .set TCBTsResp,864
 .set TCBTsCmdParm,872
-.set TCBhMailboxes,880	# room for 10 mailbox handles
-.set TCBbrk,920					# memoey brk point
-.set TCBName,924				# room for 32 16-bit characters
+# room for 10 mailbox handles
+.set TCBhMailboxes,880	
+# memoey brk point
+.set TCBbrk,920					
+.set TCBMsg,924
+# room for 32 16-bit characters
+.set TCBName,952				
 .set TCB_SIZE,1024
 
 # Application Control Block
@@ -192,13 +201,18 @@
 .set ACBpCode,152
 .set ACBObjectList,160
 .set ACBGarbageList,168
-.set ACBHeap,176   				# 640+ bytes for heap object info
+# 640+ bytes for heap object info
+.set ACBHeap,176   				
 .set ACBiofNext,824
 .set ACBiofPrev,832
-.set ACBUserName,840   		# 2 byte index of string in string area
-.set ACBPath,842   				# 2 byte index of string in string area
-.set ACBExitRunFile,844 	# 2 byte index of string in string area
-.set ACBCommandLine,846 	# 2 byte index of string in string area
+# 2 byte index of string in string area
+.set ACBUserName,840 
+# 2 byte index of string in string area  		
+.set ACBPath,842
+# 2 byte index of string in string area   				
+.set ACBExitRunFile,844
+# 2 byte index of string in string area 	
+.set ACBCommandLine,846 	
 .set ACBpVidMem,848
 .set ACBpVirtVidMem,856
 .set ACBVideoRows,864
@@ -218,10 +232,13 @@
 .set ACBHasFocus,968
 .set ACBmid,970
 .set ACBStatus,972
-.set ACBTemplates,984   	# 256 * 8 bytes reserved for template pointers
+# 256 * 8 bytes reserved for template pointers
+.set ACBTemplates,984   	
 .set ACBPad,3032
-.set ACBStrings,3072  		# start of 1kB string area
-.set ACBVTextScreen,8192	# 8kB Text screen
+# start of 1kB string area
+.set ACBStrings,3072
+# 8kB Text screen  		
+.set ACBVTextScreen,8192	
 .set ACBEnd,16384
 .set ACB_SIZE,16384
 
@@ -241,10 +258,12 @@
 .set ASRpUIData,64
 .set ASR_SIZE,72
 
-.set MBX_OWNER,0	# tid of owning task
+# tid of owning task
+.set MBX_OWNER,0	
 #MBX_WTIDS			equ		4		; tasks waiting at mailbox
 .set MBXLink,4
-.set MBXTQHead,8	# link field for free list shared with task queue head
+# link field for free list shared with task queue head
+.set MBXTQHead,8	
 .set MBXTQTail,12
 .set MBXTQCount,16
 .set MBXMQHead,20

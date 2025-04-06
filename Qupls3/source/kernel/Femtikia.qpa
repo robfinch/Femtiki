@@ -34,11 +34,11 @@
 #
 # ============================================================================
 
-include "..\..\inc\config.qpa"
-include "..\..\inc\const.qpa"
-include "..\..\inc\types.qpa"
-;include "..\..\inc\io_equates.qpa"
-include ".\Femtiki_vars.qpa"
+.include "../inc/config.qpa"
+.include "../inc/const.qpa"
+.include "../inc/types.qpa"
+#include "../inc/io_equates.qpa"
+.include "./Femtiki_vars.qpa"
 
 .set IRQFlag,0xFFFC0012
 .set InTimerISRFlag,1
@@ -48,25 +48,30 @@ include ".\Femtiki_vars.qpa"
 .set MMUxPADRV,0xFFF40060
 
 .set CB_XOR,0x00312345
+.set ESR0,0x3080
+.set EPC0,0x3108
+.set FPStateBegin,3
+.set FPStateEnd,4
 
+	.text
 	.org		0xFFFC0000
 
 #------------------------------------------------------------------------------
 # Convert a TCB handle into a pointer to the corresponding TCB.
 # The handle is just the address for the TCB shifted right and XOR'd to
-# randomize it. Got to be simple and turned into a macro for performance
+# randomize it. Got to be simple and turned into a .macro for performance
 # reasons. So, it is just a matter of reversing the steps.
 #------------------------------------------------------------------------------
 
-macro macTCBHandleToPointer
-	xor a0,a0,CB_XOR
-	sll a0,a0,LOG_TCBSZ
-endm
+.macro macTCBHandleToPointer
+	xori %a0,%a0,CB_XOR
+	slli %a0,%a0,LOG_TCBSZ
+.endm
 
 TCBHandleToPointer:
-	sub a0,a0,1
-	sll a0,a0,LOG_TCBSZ
-	add a0,a0,tcbs
+	subi %a0,%a0,1
+	slli %a0,%a0,LOG_TCBSZ
+	addi %a0,%a0,tcbs
 	blr
 
 #------------------------------------------------------------------------------
@@ -74,36 +79,36 @@ TCBHandleToPointer:
 # Handles vary from 1 to 32.
 #------------------------------------------------------------------------------
 
-macro macACBHandleToPointer
-	xor a0,a0,CB_XOR
-	sll a0,a0,LOG_ACBSZ
-endm
+.macro macACBHandleToPointer
+	xori %a0,%a0,CB_XOR
+	slli %a0,%a0,LOG_ACBSZ
+.endm
 
 ACBHandleToPointer:
-	sub a0,a0,1
-	sll a0,a0,LOG_ACBSZ
-	add a0,a0,acbs
+	subi %a0,%a0,1
+	slli %a0,%a0,LOG_ACBSZ
+	addi %a0,%a0,acbs
 	blr
 
 #------------------------------------------------------------------------------
 # Convert a TCB pointer into a handle for the TCB.
 #------------------------------------------------------------------------------
 
-macro macTCBPointerToHandle
-	srl a0,a0,LOG_TCBSZ
-	xor a0,a0,CB_XOR
-endm
+.macro macTCBPointerToHandle
+	srli %a0,%a0,LOG_TCBSZ
+	xori %a0,%a0,CB_XOR
+.endm
 
 TCBPointerToHandle:
-	sub a0,a0,tcbs
-	srl a0,a0,LOG_TCBSZ
-	add a0,a0,1
+	subi %a0,%a0,tcbs
+	srli %a0,%a0,LOG_TCBSZ
+	addi %a0,%a0,1
 	blr
 
-macro macACBPointerToHandle
-	srl a0,a0,LOG_ACBSZ
-	xor a0,a0,CB_XOR
-endm
+.macro macACBPointerToHandle
+	srli %a0,%a0,LOG_ACBSZ
+	xori %a0,%a0,CB_XOR
+.endm
 
 #------------------------------------------------------------------------------
 # Set the TCB status in an atomic fasion.
@@ -114,7 +119,7 @@ endm
 #		TCB status updated
 # Registers Affected
 #		a0: converted from handle to pointer
-#		br2: used to stack the return address
+#		%br2: used to stack the return address
 # Parameters
 #		a0 = handle of TCB to set status of
 #		a1 = status to set
@@ -122,14 +127,14 @@ endm
 #		none
 #------------------------------------------------------------------------------
 
-macro macTCBSetStatusBit
+.macro macTCBSetStatusBit
 	macTCBHandleToPointer
-	amoor a1,TCBStatus[a0]
-endm
+	amoor %r0,%a1,TCBStatus[%a0]
+.endm
 
 TCBSetStatusBit:
 	macTCBHandleToPointer
-	amoor a1,TCBStatus[a0]
+	amoor %r0,%a1,TCBStatus[%a0]
 	blr
 
 #------------------------------------------------------------------------------
@@ -139,25 +144,214 @@ TCBSetStatusBit:
 #		TCB status updated
 # Registers Affected
 #		a0: converted from handle to pointer
-#		br2: used to stack the return address
+#		%br2: used to stack the return address
 # Parameters
 #		a0 = handle of TCB to clear status of
 #		a1 = status to clear
 #------------------------------------------------------------------------------
 
-macro macTCBClearStatusBit
+.macro macTCBClearStatusBit
 	macTCBHandleToPointer
-	xor a1,a1,-1
-	amoand a1,TCBStatus[a0]
-	xor a1,a1,-1
-endm
+	xori %a1,%a1,-1
+	amoand %r0,%a1,TCBStatus[%a0]
+	xori %a1,%a1,-1
+.endm
 
 TCBClearStatusBit:
 	macTCBHandleToPointer
-	xor a1,a1,-1
-	amoand a1,TCBStatus[a0]
-	xor a1,a1,-1
+	xori %a1,%a1,-1
+	amoand %r0,%a1,TCBStatus[%a0]
+	xori %a1,%a1,-1
 	blr
+
+#------------------------------------------------------------------------------
+# Lock a semaphore.
+# The id of the currently running task is used as the semaphore value. A task
+# id is always one or greater. So, a value of zero for the semaphore means
+# it is available. This function accepts a timeout argument which allows the
+# loop attempting to set the semaphore to be aborted after the timeout.
+#
+# Parameters:
+#		a0 = number of retry attempts
+#		%a1 = semaphore variable address
+#	Returns:
+#		a0 = 1 if lock successful, 0 otherwise
+#------------------------------------------------------------------------------
+
+LockSemaphore:
+	push %a2				# push %a2
+	load %a2,RunningID
+.0002:
+	addi. %a0,%a0,-1
+	beq	%cr0,.0001
+	amoswap. %r0,%a2,[%a1]
+	bne	%cr0,.0002
+	pop %a2
+	loadi. %a0,1
+	blr
+.0001:
+	pop %a2					# 
+	loadi. %a0,0		# set %cr0
+	blr
+
+#------------------------------------------------------------------------------
+# Lock the system semaphore.
+#
+# Parameters:
+#		a0 = number of retry attempts
+#	Returns:
+#		a0 = 1 if lock successful, 0 otherwise
+#------------------------------------------------------------------------------
+
+LockSysSemaphore:
+	push %br1						# push br1
+	push %a1
+	loadi %a1,OSSEMA
+	bl LockSemaphore		# this will setup a0 and %cr0
+	pop %a1
+	pop %br1
+	blr
+
+#------------------------------------------------------------------------------
+# Lock the MMU semaphore.
+#
+# Parameters:
+#		a0 = number of retry attempts
+#	Returns:
+#		a0 = 1 if lock successful, 0 otherwise
+#------------------------------------------------------------------------------
+
+LockMMUSemaphore:
+	push %br1						# push br1
+	push %a1
+	loadi %a1,MMUSEMA
+	bl LockSemaphore
+	pop %a1
+	pop %br1
+	blr
+
+#------------------------------------------------------------------------------
+# Lock the ACB semaphore.
+#
+# Parameters:
+#		a0 = number of retry attempts
+#	Returns:
+#		a0 = 1 if lock successful, 0 otherwise
+#------------------------------------------------------------------------------
+
+LockACBSemaphore:
+	push %br1						# push br1
+	push %a1
+	loadi %a1,ACBSEMA
+	bl LockSemaphore
+	pop %a1
+	pop %br1
+	blr
+
+#------------------------------------------------------------------------------
+# Lock the PMT semaphore.
+#
+# Parameters:
+#		a0 = number of retry attempts
+#	Returns:
+#		a0 = 1 if lock successful, 0 otherwise
+#------------------------------------------------------------------------------
+
+LockPMTSemaphore:
+	push %br1						# push br1
+	push %a1
+	loadi %a1,PMTSEMA
+	bl LockSemaphore
+	pop %a1
+	pop %br1
+	blr
+
+#------------------------------------------------------------------------------
+# Lock the PMT semaphore.
+#
+# Parameters:
+#		a0 = number of retry attempts
+#	Returns:
+#		a0 = 1 if lock successful, 0 otherwise
+#------------------------------------------------------------------------------
+
+LockMSGSemaphore:
+	push %br1						# push br1
+	push %a1
+	loadi %a1,MSGSEMA
+	bl LockSemaphore
+	pop %a1
+	pop %br1
+	blr
+
+#------------------------------------------------------------------------------
+# macUnlock system semaphore.
+#
+# Parameters:
+#		none
+# Returns:
+#		none
+#------------------------------------------------------------------------------
+
+.macro macUnlockSysSemaphore
+	store %r0,OSSEMA
+.endm
+
+.macro macUnlockMMUSemaphore
+	store %r0,MMUSEMA
+.endm
+
+.macro macUnlockACBSemaphore
+	store %r0,ACBSEMA
+.endm
+
+.macro macUnlockPMTSemaphore
+	store %r0,PMTSEMA
+.endm
+
+.macro macUnlockMSGSemaphore
+	store %r0,MSGSEMA
+.endm
+
+# 'C' callable functions
+
+_UnlockSysSemaphore:
+	store %r0,OSSEMA
+	blr
+
+_UnlockMMUSemaphore:
+	store %r0,MMUSEMA
+	blr
+
+_UnlockACBSemaphore:
+	store %r0,ACBSEMA
+	blr
+
+_UnlockPMTSemaphore:
+	store %r0,PMTSEMA
+	blr
+
+_UnlockMSGSemaphore:
+	store %r0,MSGSEMA
+	blr
+
+#------------------------------------------------------------------------------
+# Get the system tick (milliseconds).
+#
+# Trickery involved in guarenteeing that the tick was read without an
+# intervening interrupt updating it.
+#
+# ToDo: make this a .macro?
+#
+# Parameters:
+#		none
+# Returns:
+#		D,W = tick value
+#------------------------------------------------------------------------------
+
+.macro macIGetTick
+	load %a0,milliseconds
+.endm
 
 #------------------------------------------------------------------------------
 # Operating system call dispatcher.
@@ -172,40 +366,40 @@ TCBClearStatusBit:
 #
 # Parameters:
 #		a0 = operating system call number
-#		a1 to a6 = arguments for the system call (use depends on called function)
+#		a1 to %a6 = arguments for the system call (use depends on called function)
 # Returns:
 #		a0 = status, E_Ok for success, otherwise an error code
 #------------------------------------------------------------------------------
 
 OSCall:
-	push cr0
-	cmpa cr0,a0,OSCallTableLimit	# check if we have a valid function number
-	bgt cr0,OSCallBadFunc
-	pop cr0
-	csrrw r0,SCRATCH,a0
-	push 0xfffe,0							# save registers
-	push 0xffff,2
+	push %cr0					# push cr0
+	cmpai %cr0,%a0,OSCallTableLimit	# check if we have a valid function number
+	bgt %cr0,OSCallBadFunc
+	pop %cr0
+	csrrw %r0,SCRATCH,%a0
+	push %r1-%r15					# save registers
+	push %r16-%r31
 	# save status reg, FP status reg
-	csrrd a0,FPSR
-	push a0
-	csrrd a0,SR
-	push a0
-	push 7,8							# save SPs
-	push 0x1ffff,9				# save CRs,BRs and LC
-	move a0,xh						# and XH
-	push a0
-	csrrd a0,SCRATCH					# get back a0
-	sll a0,a0,2								# convert unit index into word index
-	load. a0,OSCallTable[a0]	# fetch vector
-	beq cr0,OSCallBadFunc2		# nullptr?
-	csrrd a0,SCRATCH
+	csrrd %a0,FPSR
+	push %a0							# push a0
+	csrrd %a0,SR
+	push %a0
+	push %usp/%ssp/%hsp		# save SPs
+	push %cr0-%lc					# save CRs,BRs and LC
+	move %a0,%xh					# and XH
+	push %a0
+	csrrd %a0,SCRATCH					# get back a0
+	slli %a0,%a0,2						# convert unit index into word index
+	load. %a0,OSCallTable[%a0]	# fetch vector
+	beq %cr0,OSCallBadFunc2		# nullptr?
+	csrrd %a0,SCRATCH
 	# call the OS function (eg written in C)
 	# we carefully did not modify any registers, so the arguments in registers
 	# should still be correct.
-	blrl br1	
+	blrl %br1	
   # Stuff the error response return value into the right stack position so
   # they it is popped into the a0 register for return
-  store a0,428[sp]					# a0 should be here
+  store %a0,428[%sp]					# a0 should be here
 	# fall through to exit
 
 #------------------------------------------------------------------------------
@@ -219,18 +413,18 @@ OSCall:
 #------------------------------------------------------------------------------
 
 OSExit:
-	pop a0
-	move xh,a0
-	pop 0x1ffff,9					# get CRs,BRs and LC
-	pop 7,8								# get SPs
+	pop %a0
+	move %xh,%a0
+	pop %cr0-%lc					# get CRs,BRs and LC
+	pop %usp/%ssp/%hsp		# get SPs
 	# restore status reg and FP status reg
-	pop a0
-	csrrw r0,SR,a0
-	pop a0
-	csrrw r0,FPSR,a0
+	pop %a0
+	csrrw %r0,SR,%a0
+	pop %a0
+	csrrw %r0,FPSR,%a0
 	# restore GPRs
-	pop 0xffff,2
-	pop 0xfffe,0
+	pop %r16-%r31
+	pop %r1-%r15
 	rfi
 	
 #------------------------------------------------------------------------------
@@ -240,8 +434,8 @@ OSExit:
 #------------------------------------------------------------------------------
 
 OSCallBadFunc:
-	pop cr0
-  loadi	a0,E_Func
+	pop %cr0
+  loadi	%a0,E_Func
   blr
 
 #------------------------------------------------------------------------------
@@ -252,9 +446,9 @@ OSCallBadFunc:
 #------------------------------------------------------------------------------
 
 OSCallBadFunc2:
-  loadi	a0,E_Func
+  loadi	%a0,E_Func
 FMTK_RetErr:
-  store a0,428[sp]				# a0 should be here
+  store %a0,428[%sp]				# a0 should be here
   b OSExit
 
 #------------------------------------------------------------------------------
@@ -263,8 +457,8 @@ FMTK_RetErr:
 
 # Exit OS and return an OKAY status
 FMTK_RetOK:
-	loadi a0,E_OK
-	store a0,428[sp]
+	loadi %a0,E_OK
+	store %a0,428[%sp]
 	b	OSExit
 
 #------------------------------------------------------------------------------
@@ -276,97 +470,97 @@ FMTK_RetOK:
 
 GetAppMid:
 	macACBHandleToPointer
-	load a0,ACBMid[a0]
+	load %a0,ACBMid[%a0]
 	blr
 
-;OSCallTbl2:
-;  .4byte    SchedulerIRQ
-;  .4byte    IStartTask
-;  .4byte    ISendMsg
-;  .4byte    ISleep
+#OSCallTbl2:
+#  .4byte    SchedulerIRQ
+#  .4byte    IStartTask
+#  .4byte    ISendMsg
+#  .4byte    ISleep
 
 OSCallTable:
-	.4byte	FMTK_Initialize					; 0
-	.4byte	FMTK_StartTask					; 1
+	.4byte	FMTK_Initialize					# 0
+	.4byte	FMTK_StartTask					# 1
 	.4byte	FMTK_ExitTask
 	.4byte	FMTK_KillTask
-;	.4byte		FMTK_SetTaskPriority
+#	.4byte		FMTK_SetTaskPriority
 	.4byte  OSCallBadFunc
-	.4byte	FMTK_Sleep							; 5
+	.4byte	FMTK_Sleep							# 5
 	.4byte	FMTK_AllocMbx
 	.4byte		FMTK_FreeMbx
-;	.4byte		FMTK_PostMsg
+#	.4byte		FMTK_PostMsg
 	.4byte    OSCallBadFunc
 	.4byte		FMTK_SendMsg
-	.4byte		FMTK_WaitMsg						; 10
+	.4byte		FMTK_WaitMsg						# 10
 	.4byte		FMTK_PeekMsg
-;	.4byte		FMTK_StartApp           ; 12
-;	.4byte		FMTK_ExitApp            ; 13
+#	.4byte		FMTK_StartApp           # 12
+#	.4byte		FMTK_ExitApp            # 13
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
 	.4byte		FMTK_GetCurrentTid
-;	.4byte		FMTK_TCBFinalizerExit   ; 15
-;	.4byte		FMTK_KillApp
-;	.4byte		FMTK_RunAsOS            ; 17
+#	.4byte		FMTK_TCBFinalizerExit   # 15
+#	.4byte		FMTK_KillApp
+#	.4byte		FMTK_RunAsOS            # 17
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
-	.4byte		FMTK_GetTaskAppId       ; 18
-	.4byte		FMTK_SetTaskId          ; 19
-;	.4byte		FMTK_HasIOFocus					; 20
-;	.4byte		FMTK_SwitchIOFocus			; 21
-;	.4byte		FMTK_ReleaseIOFocus			; 22
-;	.4byte		FMTK_ForceReleaseIOFocus	; 23
-;	.4byte		FMTK_RequestIOFocus			; 24
-	.4byte    OSCallBadFunc
-	.4byte    OSCallBadFunc
-	.4byte    OSCallBadFunc
-	.4byte    OSCallBadFunc
-	.4byte    OSCallBadFunc
-;	.4byte		FMTK_MapOSVars          ; 25
-;	.4byte		FMTK_IO									; 26
-;	.4byte    FMTK_GetDCBField        ; 27
-;	.4byte    FMTK_SetDCBField        ; 28
+	.4byte		FMTK_GetTaskAppId       # 18
+	.4byte		FMTK_SetTaskId          # 19
+#	.4byte		FMTK_HasIOFocus					# 20
+#	.4byte		FMTK_SwitchIOFocus			# 21
+#	.4byte		FMTK_ReleaseIOFocus			# 22
+#	.4byte		FMTK_ForceReleaseIOFocus	# 23
+#	.4byte		FMTK_RequestIOFocus			# 24
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
-	.4byte    FMTK_GetAppTaskId       ; 29
-	.4byte    FMTK_SetTaskAppId       ; 30
 	.4byte    OSCallBadFunc
-;	.4byte    GetPamBit               ; 32
-	.4byte    OSCallBadFunc
-;	.4byte    FetchMemoryWord         ; 33
-	.4byte    OSCallBadFunc
-;	.4byte    Monitor                 ; 34
-	.4byte    OSCallBadFunc
-	.4byte    GetIRQFlag              ; 35
-	.4byte    SetIRQFlag              ; 36
+#	.4byte		FMTK_MapOSVars          # 25
+#	.4byte		FMTK_IO									# 26
+#	.4byte    FMTK_GetDCBField        # 27
+#	.4byte    FMTK_SetDCBField        # 28
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
-	.4byte    OSCallBadFunc         	 ; 40
-	.4byte    OSCallBadFunc           ; 41
-	.4byte    OSCallBadFunc           ; 42
 	.4byte    OSCallBadFunc
-	.4byte    FemtikiTimerIRQ         ; 44
-;	.4byte    FMTK_Reschedule         ; 45
+	.4byte    FMTK_GetAppTaskId       # 29
+	.4byte    FMTK_SetTaskAppId       # 30
 	.4byte    OSCallBadFunc
-	.4byte    FMTK_GetCurrentMid      ; 46
-	.4byte    FMTK_GetRunningTCBPointer	; 47
-	.4byte		OSCallBadFunc							 ; 48
-	.4byte		DumpTCBs								; 49
+#	.4byte    GetPamBit               # 32
+	.4byte    OSCallBadFunc
+#	.4byte    FetchMemoryWord         # 33
+	.4byte    OSCallBadFunc
+#	.4byte    Monitor                 # 34
+	.4byte    OSCallBadFunc
+	.4byte    GetIRQFlag              # 35
+	.4byte    SetIRQFlag              # 36
+	.4byte    OSCallBadFunc
+	.4byte    OSCallBadFunc
+	.4byte    OSCallBadFunc
+	.4byte    OSCallBadFunc         	 # 40
+	.4byte    OSCallBadFunc           # 41
+	.4byte    OSCallBadFunc           # 42
+	.4byte    OSCallBadFunc
+	.4byte    FemtikiTimerISR         # 44
+#	.4byte    FMTK_Reschedule         # 45
+	.4byte    OSCallBadFunc
+	.4byte    FMTK_GetCurrentMid      # 46
+	.4byte    FMTK_GetRunningTCBPointer	# 47
+	.4byte		OSCallBadFunc							 # 48
+	.4byte		DumpTCBs								# 49
 
-NUM_OSFUNC	EQU		(*-OSCallTbl) / 2
+.set NUM_OSFUNC,50	#($-OSCallTbl) / 2
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
 
 FMTK_Initialize:
-	move br2,br1
+	move %br2,%br1
   bl FMTK_Init
-  loadi a0,E_Ok
-  blr br2
+  loadi %a0,E_Ok
+  blr %br2
  
 #------------------------------------------------------------------------------
 # Get the task id for the currently running task.
@@ -379,33 +573,33 @@ FMTK_Initialize:
 #------------------------------------------------------------------------------
 
 GetCurrentTid:
-	load a0,RunningID
+	load %a0,RunningID
 	blr
 
 #------------------------------------------------------------------------------
 # Get the task id for the currently running task.
 #
 # Parameters:
-#		a1 = place to put task id
+#		%a1 = place to put task id
 # Returns:
-#		a0 = status, E_Ok or E_Arg if not a valid pointer in a1
-#		task id at address given in a1
+#		a0 = status, E_Ok or E_Arg if not a valid pointer in %a1
+#		task id at address given in %a1
 #------------------------------------------------------------------------------
 
 FMTK_GetCurrentTid:
-	cmp cr0,a1,0						# check for NULL pointer
-	beq cr0,.0001
-	load a0,RunningID
+	cmpi %cr0,%a1,0						# check for NULL pointer
+	beq %cr0,.0001
+	load %a0,RunningID
 	macTCBPointerToHandle
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a0,[a1]						# do the store to the proper addres space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %a0,[%a1]						# do the store to the proper addres space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
-	loadi a0,E_Ok
+	loadi %a0,E_Ok
 	blr
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
 	blr
 
 #------------------------------------------------------------------------------
@@ -422,60 +616,60 @@ FMTK_GetCurrentTid:
 
 # The virtual address is offset by the base register into the MMU mapping table
 ConvertVirtualToPhysical:
-	push br1
-	push 0xC,0					# push a1,a2
-	move a2,a0
-	loadi a0,-1
-	loadi a1,MMUSEMA
+	push %br1
+	push %a1/%a2
+	move %a2,%a0
+	loadi %a0,-1
+	loadi %a1,MMUSEMA
 	bl LockSemaphore
-	store a2,MMUxVIRTADR
+	store %a2,MMUxVIRTADR
 	# poll the conversion complete bit, this should not take long
 .0001:
-	load. a0,MMUxPADRV
-	beq cr0,.0001
-	load a0,MMUxPHYSADR
+	load. %a0,MMUxPADRV
+	beq %cr0,.0001
+	load %a0,MMUxPHYSADR
 	macUnlockMMUSemaphore
-	pop 0xC,0
-	pop br1
+	pop %a1/%a2
+	pop %br1
 	blr
 
 #------------------------------------------------------------------------------
 # Get the IRQ flag which a CPU local global variable.
 #
 # Parameters:
-#		a1 = place to put flag
+#		%a1 = place to put flag
 # Returns:
-#		a0 = status, E_Ok or E_Arg if not a valid pointer in a1
-#		IRQ flag at address given in a1
+#		a0 = status, E_Ok or E_Arg if not a valid pointer in %a1
+#		IRQ flag at address given in %a1
 #------------------------------------------------------------------------------
 
 GetIRQFlag:
-	cmp cr0,a1,0			# check for NULL pointer
-	beq cr0,.0001
-  ldbz a0,IRQFlag		# get the flag
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+	cmpi %cr0,%a1,0			# check for NULL pointer
+	beq %cr0,.0001
+  ldbz %a0,IRQFlag		# get the flag
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a0,[a1]						# do the store to the proper addres space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %a0,[%a1]						# do the store to the proper addres space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
-	loadi a0,E_Ok
+	loadi %a0,E_Ok
 	blr
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
 	blr
 
 #------------------------------------------------------------------------------
 # Set the IRQ flag which a CPU local global variable.
 #
 # Parameters:
-#		a1 = value for flag
+#		%a1 = value for flag
 # Returns:
-#		a0 = status, E_Ok or E_Arg if not a valid pointer in a1
+#		a0 = status, E_Ok or E_Arg if not a valid pointer in %a1
 #------------------------------------------------------------------------------
 
 SetIRQFlag:
-  stb a1,IRQFlag
-  loadi a0,E_Ok
+  stb %a1,IRQFlag
+  loadi %a0,E_Ok
   blr
 
 #------------------------------------------------------------------------------
@@ -486,85 +680,85 @@ SetIRQFlag:
 # Get the owning app id for the task.
 #
 # Parameters:
-#	 	a1 = task id
-#		a2 = place to store app id
+#	 	%a1 = task id
+#		%a2 = place to store app id
 # Returns:
-#		a0 = status, E_Ok or E_Arg if not a valid pointer in a2, E_Arg for bad
+#		a0 = status, E_Ok or E_Arg if not a valid pointer in %a2, E_Arg for bad
 #        TCB number
-#		app id stored at address pointed to by a2
+#		app id stored at address pointed to by %a2
 #------------------------------------------------------------------------------
 
 FMTK_GetTaskAppId:
-  cmpa cr0,a1,0
-  beq cr0,.0001
-	cmp cr0,a2,0			# check for NULL pointer
-	beq cr0,.0001
-	load a0,RunningID
-	load a0,TCBappid[a0]
+  cmpai %cr0,%a1,0
+  beq %cr0,.0001
+	cmpi %cr0,%a2,0			# check for NULL pointer
+	beq %cr0,.0001
+	load %a0,RunningID
+	load %a0,TCBappid[%a0]
 	macACBPointerToHandle
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a0,[a2]						# do the store to the proper addres space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %a0,[%a2]						# do the store to the proper addres space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
-	loadi a0,E_Ok
+	loadi %a0,E_Ok
 	blr
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
 	blr
 
 #------------------------------------------------------------------------------
 # Set the owning app id for the task.
 #
 # Parameters:
-#		a1 = task id
-#		a2 = App id
+#		%a1 = task id
+#		%a2 = App id
 # Returns:
 #		a0 = status, E_Ok or E_Arg for bad TCB number
 #------------------------------------------------------------------------------
 #
 FMTK_SetTaskAppId:
-  cmpa cr0,a1,0
-  beq cr0,.0001
-  move a0,a1
+  cmpai %cr0,%a1,0
+  beq %cr0,.0001
+  move %a0,%a1
 	macTCBHandleToPointer
-	move a1,a0
+	move %a1,%a0
 	# compare to zero?
-	move a0,a2
+	move %a0,%a2
 	macACBHandleToPointer
-	stptr a0,TCBappid[a1]
-	loadi a0,E_Ok
+	stptr %a0,TCBappid[%a1]
+	loadi %a0,E_Ok
 	blr
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
 	blr
 
 #------------------------------------------------------------------------------
 # Get the task associated with the app.
 #
 # Parameters
-#		a1 = app id
-#		a2 = address to store task id at
+#		%a1 = app id
+#		%a2 = address to store task id at
 #------------------------------------------------------------------------------
 
 FMTK_GetAppTaskId:
-  cmpa cr0,a1,0
-  beq cr0,.0001
-	cmp cr0,a2,0			# check for NULL pointer
-	beq cr0,.0001
-	move a0,a1				# a0 = app id
+  cmpai %cr0,%a1,0
+  beq %cr0,.0001
+	cmpi %cr0,%a2,0			# check for NULL pointer
+	beq %cr0,.0001
+	move %a0,%a1				# a0 = app id
 	macACBHandleToPointer
-	load a0,ACBTask[a0]
+	load %a0,ACBTask[%a0]
 	macTCBPointerToHandle
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a0,[a2]						# do the store to the proper addres space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %a0,[%a2]						# do the store to the proper addres space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
-	loadi a0,E_Ok
+	loadi %a0,E_Ok
 	blr
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
 	blr
 
 #------------------------------------------------------------------------------
@@ -578,52 +772,52 @@ FMTK_SetTaskId:
   # Should get the id and see if it s currently zero (unset).
   # but this would be more code bloat.
   macTCBHandleToPointer
-  stptr a1,RunningID
-  loadi a0,E_Ok
+  stptr %a1,RunningID
+  loadi %a0,E_Ok
   blr
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
 
 FMTK_GetCurrentMid:
-	load a0,RunningID
-	load a0,TCBappid[a0]
-	ldbz a0,ACBmid[a0]
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+	load %a0,RunningID
+	load %a0,TCBappid[%a0]
+	ldbz %a0,ACBmid[%a0]
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a0,[a1]						# do the store to the proper addres space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %a0,[%a1]						# do the store to the proper addres space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
-	loadi a0,E_Ok
+	loadi %a0,E_Ok
 	blr
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
 	blr
 
 #------------------------------------------------------------------------------
 # Parameters:
-#		a1 = task id
-#		a2 = address to put mid in
+#		%a1 = task id
+#		%a2 = address to put mid in
 #------------------------------------------------------------------------------
 
 FMTK_GetMid:
-	cmp cr0,a1,0
-	beq cr0,.0001
-	cmp cr0,a2,0	
-	beq cr0,.0001
-	move a0,a1
+	cmpi %cr0,%a1,0
+	beq %cr0,.0001
+	cmpi %cr0,%a2,0	
+	beq %cr0,.0001
+	move %a0,%a1
 	macTCBHandleToPointer
-	load a0,TCBappid[a0]
-	ldbz a0,ACBmid[a0]
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+	load %a0,TCBappid[%a0]
+	ldbz %a0,ACBmid[%a0]
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a0,[a2]						# do the store to the proper addres space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %a0,[%a2]						# do the store to the proper addres space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
-	loadi a0,E_Ok
+	loadi %a0,E_Ok
 	blr
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
 	blr
 	
 #------------------------------------------------------------------------------
@@ -635,13 +829,13 @@ FMTK_GetMid:
 #		a0 = pointer to running TCB
 #------------------------------------------------------------------------------
 
-macro macGetRunningTCBPtr
-	load a0,RunningID
+.macro macGetRunningTCBPtr
+	load %a0,RunningID
 	macTCBHandleToPointer
-endm
+.endm
 
 GetRunningTCBPtr:
-	load a0,RunningID
+	load %a0,RunningID
 	macTCBHandleToPointer
 	blr
 	
@@ -649,22 +843,22 @@ GetRunningTCBPtr:
 # ToDo: Should check that app is capable of using TCB pointers
 #
 # Parameters:
-#		a1 = address to put pointer in
+#		%a1 = address to put pointer in
 #------------------------------------------------------------------------------
 
 FMTK_GetRunningTCBPointer:
-  cmp cr0,a1,0						# check for null pointer
-  beq cr0,.0001
+  cmpi %cr0,%a1,0						# check for null pointer
+  beq %cr0,.0001
 	macGetRunningTCBPtr
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	stptr a0,[a1]						# do the store to the proper address space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	stptr %a0,[%a1]						# do the store to the proper address space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
-	loadi a0,E_Ok
+	loadi %a0,E_Ok
 	blr
 .0001:
-	loadi a0,E_Arg
+	loadi %a0,E_Arg
 	blr
 
 #------------------------------------------------------------------------------
@@ -689,20 +883,20 @@ FMTK_GetRunningTCBPointer:
 #				}
 
 DecrementTimeout:
-.0001:
-	load.	a0,TimeoutList				# a0 = pointer to timeout list
-	beq cr0,.0001
-	load. a1,TCBTimeout[a0]
-	bgt cr0,.0002
+.0003:
+	load.	%a0,TimeoutList				# a0 = pointer to timeout list
+	beq %cr0,.0001
+	load. %a1,TCBTimeout[%a0]
+	bgt %cr0,.0002
 	bl PopTimeoutList
 	bl InsertIntoReadyQueue
-	b .0001
+	b .0003
 .0002:
-	sub a1,a1,1
-	neg a1											# we really wanted amosub here
-	amoadd r0,a1,missed_ticks
-	neg a1
-	store a1,TCBTimeout[a0]
+	subi %a1,%a1,1
+	neg %a1,%a1									# we really wanted amosub here
+	amoadd %r0,%a1,missed_ticks
+	neg %a1,%a1
+	store %a1,TCBTimeout[%a0]
 .0001:
 	blr
 
@@ -711,40 +905,40 @@ DecrementTimeout:
 #------------------------------------------------------------------------------
 
 SchedulerIRQHelper:
-	move br3,br1
-	loadi a0,20
-	cmp cr0,a0,0
-	beq cr0,.0003
-	load a0,RunningID
-	# Compute a5 = number of ticks running
-	load a1,TCBEndTick[a0]
-	load a2,TCBStartTick[a0]
-	sub a5,a1,a2
-	amoadd r0,a5,TCBTicks[a0]	# calc total cumulative ticks running
+	move %br3,%br1
+	loadi %a0,20
+	cmpi %cr0,%a0,0
+	beq %cr0,.0003
+	load %a0,RunningID
+	# Compute %a5 = number of ticks running
+	load %a1,TCBEndTick[%a0]
+	load %a2,TCBStartTick[%a0]
+	sub %a5,%a1,%a2
+	amoadd %r0,%a5,TCBTicks[%a0]	# calc total cumulative ticks running
 
 	# Check the task priority, special priority 63
-	ldbz a1,TCBPriorty[a0]
-	cmpa cr0,a1,63						# highest priority: refuse to task switch or even
-	bge cr0,.0003							# decrement timeout
-	loadi a1,TS_PREEMPT
-	amoorb r0,a1,TCBStatus[a0]
+	ldbz %a1,TCBPriorty[%a0]
+	cmpai %cr0,%a1,63						# highest priority: refuse to task switch or even
+	bge %cr0,.0003							# decrement timeout
+	loadi %a1,TS_PREEMPT
+	amoorb %r0,%a1,TCBStatus[%a0]
 	bl DecrementTimeout
-	ldbz a1,TCBPriority[a0]		# very high priority > 59, don't switch
-	cmpa cr0,a1,60
-	bge cr0,.0002
-	cmpa cr0,a5,3							# allow the task to run for 3 ticks
-	blt cr0,.0002
+	ldbz %a1,TCBPriority[%a0]		# very high priority > 59, don't switch
+	cmpai %cr0,%a1,60
+	bge %cr0,.0002
+	cmpai %cr0,%a5,3							# allow the task to run for 3 ticks
+	blt %cr0,.0002
 	bl SelectTaskToRun
-	stptr a0,RunningID
+	stptr %a0,RunningID
 .0002:
-	loadi a1,TS_RUNNING
-	amoorb r0,a1,TCBStatus[a0]
-	move br1,br3
+	loadi %a1,TS_RUNNING
+	amoorb %r0,%a1,TCBStatus[%a0]
+	move %br1,%br3
 	blr
 .0003:
-	loadi a0,1
-	amoadd r0,a0,missed_ticks
-	move br1,br3
+	loadi %a0,1
+	amoadd %r0,%a0,missed_ticks
+	move %br1,%br3
 	blr
 
 #------------------------------------------------------------------------------
@@ -767,64 +961,64 @@ SchedulerIRQHelper:
 #------------------------------------------------------------------------------
 
 FemtikiTimerISR:
-	push 0xfe,0									# push a0 to a6
-	push cr0
-	push 0x7e,9									# push br1 to br6
-	load a0,RunningID
-	csrrs a1,M_SEMA,InTimerISRFlag	# get InTimerISR flag
-	and. a1,a1,InTimerISRFlag
-	bne cr0,.0004
-	stptr a0,PrevRunningID			# Keep track of previous Running TCB
-	move a4,a0									
-	move a1,a0
+	push %a0-%a6								# push a0 to %a6
+	push %cr0
+	push %br1-%br6							# push %br1 to %br6
+	load %a0,RunningID
+	csrrsi %a1,M_SEMA,InTimerISRFlag	# get InTimerISR flag
+	andi. %a1,%a1,InTimerISRFlag
+	bne %cr0,.0004
+	stptr %a0,PrevRunningID			# Keep track of previous Running TCB
+	move %a4,%a0									
+	move %a1,%a0
 	macIGetTick
-	store a0,TCBEndTick[a1]
+	store %a0,TCBEndTick[%a1]
 	bl SchedulerIRQHelper
-	load a0,RunningID						# scheduling may have changed this value
-	move a5,a0									# save a copy of the id
-	xor a4,a0,a4								# a4 = flag if running changed
-	ldbz. a1,TCBException[a0]
-	beq cr0,.0001
+	load %a0,RunningID						# scheduling may have changed this value
+	move %a5,%a0									# save a copy of the id
+	xor %a4,%a0,%a4								# %a4 = flag if running changed
+	ldbz. %a1,TCBException[%a0]
+	beq %cr0,.0001
 	# Exception processing code
 	# Causes a transfer to the exception handler
-	store a1,TCBxA0[a0]					# save exception code in a0
-	store 45,TCBxA1[a0]					# store exception type in a1
-	store r0,TCBException[a0]		# set exception to zero
-	load a1,TCBxXH[a0]					# move handler address to link register
-	stptr a1,TCBxBR1[a0]
-	stptr a1,TCBxPC[a0]					# move handler address to PC register
+	store %a1,TCBxA0[%a0]					# save exception code in %a0
+	storei 45,TCBxA1[%a0]					# store exception type in %a1
+	store %r0,TCBException[%a0]		# set exception to zero
+	load %a1,TCBxXH[%a0]					# move handler address to link register
+	stptr %a1,TCBxBR1[%a0]
+	stptr %a1,TCBxPC[%a0]					# move handler address to PC register
 .0001:
-	move a1,a0
+	move %a1,%a0
 	macIGetTick
-	store a0,TCBStartTick[a1]
+	store %a0,TCBStartTick[%a1]
 	# Did we stay in the same task?
-	cmp cr0,a4,0
-	bne cr0,.0002
+	cmpi %cr0,%a4,0
+	bne %cr0,.0002
 	# If in same task, just pop registers and return
-	pop 0x7e,9								# get back br1 to br6
-	pop cr0
-	pop 0xfe,0								# get back a0 to a6
+	pop %br1-%br6							# get back %br1 to %br6
+	pop %cr0
+	pop %a0-%a6								# get back a0 to %a6
 	# We need the rfi to execute without an interrupt between the csrrc and rfi
 	atom 63,3
-	csrrc r0,M_SEMA,InTimerISRFlag
+	csrrci %r0,M_SEMA,InTimerISRFlag
 	rfi
 	# Return, but do not flag as ISR complete. We are returning to the ISR.
 .0004:
-	loadi a0,1
-	amoadd r0,a0,missed_ticks
-	pop 0x7e,9								# get back br1 to br6
-	pop cr0
-	pop 0xfe,0								# get back a0 to a6
+	loadi %a0,1
+	amoadd %r0,%a0,missed_ticks
+	pop %br1-%br6							# get back %br1 to %br6
+	pop %cr0
+	pop %a0-%a6								# get back a0 to %a6
 	rfi
 
 	# Here a different task was selected, save and restore contexts
 	# Going in:
-	# 	a4 = old task
-	#		a5 = new task
+	# 	%a4 = old task
+	#		%a5 = new task
 .0002:
-	pop 0x7e,9								# get back br1 to br6
-	pop cr0
-	pop 0xfe,0								# get back a0 to a6
+	pop %br1-%br6							# get back %br1 to %br6
+	pop %cr0
+	pop %a0-%a6								# get back a0 to %a6
 
 #------------------------------------------------------------------------------
 # Context switch code	
@@ -838,287 +1032,287 @@ FemtikiTimerISR:
 #------------------------------------------------------------------------------
 
 SwitchTask:
-	csrrw r0,SCRATCH,a0		# save a0 in scratch register
-	push br1
-	load a0,PrevRunningID
+	csrrw %r0,SCRATCH,%a0		# save a0 in scratch register
+	push %br1
+	load %a0,PrevRunningID
 	# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	# Store the destination context
 	# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-	store a1,TCBxA1[a0]		# save a1 in TCB so we can use it
-	pop br1								# restore link register
-	csrrd a1,SCRATCH			# save original a0 in task control block
-	store a1,TCBxA0[a0]
+	store %a1,TCBxA1[%a0]		# save %a1 in TCB so we can use it
+	pop %br1								# restore link register
+	csrrd %a1,SCRATCH			# save original a0 in task control block
+	store %a1,TCBxA0[%a0]
 	# save condition registers
-	move a1,cr0
-	store a1,TCBxCR0[a0]
-	move a1,cr1
-	store a1,TCBxCR1[a0]
-	move a1,cr2
-	store a1,TCBxCR2[a0]
-	move a1,cr3
-	store a1,TCBxCR3[a0]
-	move a1,cr4
+	move %a1,%cr0
+	store %a1,TCBxCR0[%a0]
+	move %a1,cr1
+	store %a1,TCBxCR1[%a0]
+	move %a1,cr2
+	store %a1,TCBxCR2[%a0]
+	move %a1,cr3
+	store %a1,TCBxCR3[%a0]
+	move %a1,cr4
 .0004:	
-	bbf cr7,.0004	
-	store a1,TCBxCR4[a0]
-	move a1,cr5
-	store a1,TCBxCR5[a0]
-	move a1,cr6
-	store a1,TCBxCR6[a0]
-	move a1,cr7
-	store a1,TCBxCR7[a0]
+	bbf %cr7,.0004	
+	store %a1,TCBxCR4[%a0]
+	move %a1,cr5
+	store %a1,TCBxCR5[%a0]
+	move %a1,cr6
+	store %a1,TCBxCR6[%a0]
+	move %a1,%cr7
+	store %a1,TCBxCR7[%a0]
 	# save branch registers
-	move a1,br1
-	store a1,TCBxBR1[a0]
+	move %a1,%br1
+	store %a1,TCBxBR1[%a0]
 .0005:	
-	bbf cr7,.0005	
-	move a1,br2
-	store a1,TCBxBR2[a0]
-	move a1,br3
-	store a1,TCBxBR3[a0]
-	move a1,br4
-	store a1,TCBxBR4[a0]
-	move a1,br5
-	store a1,TCBxBR5[a0]
-	move a1,br6
-	store a1,TCBxBR6[a0]
+	bbf %cr7,.0005	
+	move %a1,%br2
+	store %a1,TCBxBR2[%a0]
+	move %a1,%br3
+	store %a1,TCBxBR3[%a0]
+	move %a1,%br4
+	store %a1,TCBxBR4[%a0]
+	move %a1,%br5
+	store %a1,TCBxBR5[%a0]
+	move %a1,%br6
+	store %a1,TCBxBR6[%a0]
 	# save loop counter
-	move a1,lc
-	store a1,TCBxLC[a0]
+	move %a1,%lc
+	store %a1,TCBxLC[%a0]
 .0006:	
-	bbf cr7,.0006
+	bbf %cr7,.0006
 	# exception handler address
-	move a1,xh
-	store a1,TCBxXH[a0]
+	move %a1,xh
+	store %a1,TCBxXH[%a0]
 	# save GPRs
-	store a2,TCBxA2[a0]
-	store a3,TCBxA3[a0]
-	store a4,TCBxA4[a0]
-	store a5,TCBxA5[a0]
-	store a6,TCBxA6[a0]
-	store a7,TCBxA7[a0]
+	store %a2,TCBxA2[%a0]
+	store %a3,TCBxA3[%a0]
+	store %a4,TCBxA4[%a0]
+	store %a5,TCBxA5[%a0]
+	store %a6,TCBxA6[%a0]
+	store %a7,TCBxA7[%a0]
 .0007:
-	bbf cr7,.0007
-	store t0,TCBxT0[a0]
-	store t1,TCBxT1[a0]
-	store t2,TCBxT2[a0]
-	store t3,TCBxT3[a0]
-	store t4,TCBxT4[a0]
-	store t5,TCBxT5[a0]
+	bbf %cr7,.0007
+	store %t0,TCBxT0[%a0]
+	store %t1,TCBxT1[%a0]
+	store %t2,TCBxT2[%a0]
+	store %t3,TCBxT3[%a0]
+	store %t4,TCBxT4[%a0]
+	store %t5,TCBxT5[%a0]
 .0008:
-	bbf cr7,.0008
-	store t6,TCBxT6[a0]
-	store t7,TCBxT7[a0]
-	store t8,TCBxT8[a0]
-	store t9,TCBxT9[a0]
-	store s0,TCBxS0[a0]
-	store s1,TCBxS1[a0]
+	bbf %cr7,.0008
+	store %t6,TCBxT6[%a0]
+	store %t7,TCBxT7[%a0]
+	store %t8,TCBxT8[%a0]
+	store %t9,TCBxT9[%a0]
+	store %s0,TCBxS0[%a0]
+	store %s1,TCBxS1[%a0]
 .0009:
-	bbf cr7,.0009
-	store s2,TCBxS2[a0]
-	store s3,TCBxS3[a0]
-	store s4,TCBxS4[a0]
-	store s5,TCBxS5[a0]
-	store s6,TCBxS6[a0]
+	bbf %cr7,.0009
+	store %s2,TCBxS2[%a0]
+	store %s3,TCBxS3[%a0]
+	store %s4,TCBxS4[%a0]
+	store %s5,TCBxS5[%a0]
+	store %s6,TCBxS6[%a0]
 .0010:
-	bbf cr7,.0010
-	store s7,TCBxS7[a0]
-	store s8,TCBxS8[a0]
-	store s9,TCBxS9[a0]
-	store gp,TCBxGP[a0]
-	store fp,TCBxFP[a0]
+	bbf %cr7,.0010
+	store %s7,TCBxS7[%a0]
+	store %s8,TCBxS8[%a0]
+	store %s9,TCBxS9[%a0]
+	store %gp,TCBxGP[%a0]
+	store %fp,TCBxFP[%a0]
 .0011:
-	bbf cr7,.0011
-	csrrd a1,SR
-	store a1,TCBxSR[a0]
+	bbf %cr7,.0011
+	csrrd %a1,SR
+	store %a1,TCBxSR[%a0]
 	# check to see if FPRs need to be saved
-	csrrd a1,FPSR
-	store a1,TCBxFPSR[a0]
-	ext. a1,a1,FPStateBegin,FPStateEnd
-	beq cr0,.0002
-	store f0,TCBxF0[a0]
-	store f1,TCBxF1[a0]
-	store f2,TCBxF2[a0]
+	csrrd %a1,FPSR
+	store %a1,TCBxFPSR[%a0]
+	ext. %a1,%a1,FPStateBegin,FPStateEnd
+	beq %cr0,.0002
+	stfd %f0,TCBxF0[%a0]
+	stfd %f1,TCBxF1[%a0]
+	stfd %f2,TCBxF2[%a0]
 .0012:
-	bbf cr7,.0012
-	store f3,TCBxF3[a0]
-	store f4,TCBxF4[a0]
-	store f5,TCBxF5[a0]
-	store f6,TCBxF6[a0]
-	store f7,TCBxF7[a0]
-	store f8,TCBxF8[a0]
+	bbf %cr7,.0012
+	stfd %f3,TCBxF3[%a0]
+	stfd %f4,TCBxF4[%a0]
+	stfd %f5,TCBxF5[%a0]
+	stfd %f6,TCBxF6[%a0]
+	stfd %f7,TCBxF7[%a0]
+	stfd %f8,TCBxF8[%a0]
 .0013:
-	bbf cr7,.0013
-	store f9,TCBxF9[a0]
-	store f10,TCBxF10[a0]
-	store f11,TCBxF11[a0]
-	store f12,TCBxF12[a0]
-	store f13,TCBxF13[a0]
-	store f14,TCBxF14[a0]
+	bbf %cr7,.0013
+	stfd %f9,TCBxF9[%a0]
+	stfd %f10,TCBxF10[%a0]
+	stfd %f11,TCBxF11[%a0]
+	stfd %f12,TCBxF12[%a0]
+	stfd %f13,TCBxF13[%a0]
+	stfd %f14,TCBxF14[%a0]
 .0014:
-	bbf cr7,.0014
-	store f15,TCBxF15[a0]
-	store f16,TCBxF16[a0]
-	store f17,TCBxF17[a0]
-	store f18,TCBxF18[a0]
-	store f19,TCBxF19[a0]
-	store f20,TCBxF20[a0]
+	bbf %cr7,.0014
+	stfd %f15,TCBxF15[%a0]
+	stfd %f16,TCBxF16[%a0]
+	stfd %f17,TCBxF17[%a0]
+	stfd %f18,TCBxF18[%a0]
+	stfd %f19,TCBxF19[%a0]
+	stfd %f20,TCBxF20[%a0]
 .0015:
-	bbf cr7,.0015
-	store f21,TCBxF21[a0]
-	store f22,TCBxF22[a0]
-	store f23,TCBxF23[a0]
-	store f24,TCBxF24[a0]
-	store f25,TCBxF25[a0]
-	store f26,TCBxF26[a0]
+	bbf %cr7,.0015
+	stfd %f21,TCBxF21[%a0]
+	stfd %f22,TCBxF22[%a0]
+	stfd %f23,TCBxF23[%a0]
+	stfd %f24,TCBxF24[%a0]
+	stfd %f25,TCBxF25[%a0]
+	stfd %f26,TCBxF26[%a0]
 .0016:
-	bbf cr7,.0016
-	store f27,TCBxF27[a0]
-	store f28,TCBxF28[a0]
-	store f29,TCBxF29[a0]
-	store f30,TCBxF30[a0]
-	store f31,TCBxF31[a0]
+	bbf %cr7,.0016
+	stfd %f27,TCBxF27[%a0]
+	stfd %f28,TCBxF28[%a0]
+	stfd %f29,TCBxF29[%a0]
+	stfd %f30,TCBxF30[%a0]
+	stfd %f31,TCBxF31[%a0]
 .0017:
-	bbf cr7,.0017
+	bbf %cr7,.0017
 .0002:	
 	# save stack pointers and branch registers
-	movea a1,USP
-	store a1,TCBxUSP[a0]
-	movea a1,SSP
-	store a1,TCBxSSP[a0]
-	movea a1,HSP
-	store a1,TCBxHSP[a0]
-	csrrd a1,EPC0
-	store a1,TCBxPC[a0]
-	csrrd a1,ESR0
-	store a1,TCBxSR[a0]
+	movea %a1,%usp
+	store %a1,TCBxUSP[%a0]
+	movea %a1,%ssp
+	store %a1,TCBxSSP[%a0]
+	movea %a1,%hsp
+	store %a1,TCBxHSP[%a0]
+	csrrd %a1,EPC0
+	store %a1,TCBxPC[%a0]
+	csrrd %a1,ESR0
+	store %a1,TCBxSR[%a0]
 .0018:
-	bbf cr7,.0018
+	bbf %cr7,.0018
 	# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	# Load the destination context
 	# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	# walk forwards loading registers
 	macGetRunningTCBPtr
-	csrrw r0,TCBA,a0			# update running TCB address
+	csrrw %r0,TCBA,%a0			# update running TCB address
 
 	# load condition registers
-	load a1,TCBxCR0[a0]
-	move cr0,a1
-	load a1,TCBxCR1[a0]
-	move cr1,a1
-	load a1,TCBxCR2[a0]
-	move cr2,a1
-	load a1,TCBxCR3[a0]
-	move cr3,a1
-	load a1,TCBxCR4[a0]
-	move cr4,a1
-	load a1,TCBxCR5[a0]
-	move cr5,a1
-	load a1,TCBxCR6[a0]
-	move cr6,a1
-	load a1,TCBxCR7[a0]
-	move cr7,a1
+	load %a1,TCBxCR0[%a0]
+	move %cr0,%a1
+	load %a1,TCBxCR1[%a0]
+	move cr1,%a1
+	load %a1,TCBxCR2[%a0]
+	move cr2,%a1
+	load %a1,TCBxCR3[%a0]
+	move cr3,%a1
+	load %a1,TCBxCR4[%a0]
+	move cr4,%a1
+	load %a1,TCBxCR5[%a0]
+	move cr5,%a1
+	load %a1,TCBxCR6[%a0]
+	move cr6,%a1
+	load %a1,TCBxCR7[%a0]
+	move %cr7,%a1
 	# load branch registers
-	load a1,TCBxBR1[a0]
-	move br1,a1
-	load a1,TCBxBR2[a0]
-	move br2,a1
-	load a1,TCBxBR3[a0]
-	move br3,a1
-	load a1,TCBxBR4[a0]
-	move br4,a1
-	load a1,TCBxBR5[a0]
-	move br5,a1
-	load a1,TCBxBR6[a0]
-	move br6,a1
+	load %a1,TCBxBR1[%a0]
+	move %br1,%a1
+	load %a1,TCBxBR2[%a0]
+	move %br2,%a1
+	load %a1,TCBxBR3[%a0]
+	move %br3,%a1
+	load %a1,TCBxBR4[%a0]
+	move %br4,%a1
+	load %a1,TCBxBR5[%a0]
+	move %br5,%a1
+	load %a1,TCBxBR6[%a0]
+	move %br6,%a1
 	# load loop counter
-	load a1,TCBxLC[a0]
-	move lc,a1
+	load %a1,TCBxLC[%a0]
+	move %lc,%a1
 	# excaption handler address
-	load a1,TCBxXH[a0]
-	move xh,a1
+	load %a1,TCBxXH[%a0]
+	move %xh,%a1
 	# Load GPRs
-	load a2,TCBxA2[a0]
-	load a3,TCBxA3[a0]
-	load a4,TCBxA4[a0]
-	load a5,TCBxA5[a0]
-	load a6,TCBxA6[a0]
-	load a7,TCBxA7[a0]
-	load t0,TCBxT0[a0]
-	load t1,TCBxT1[a0]
-	load t2,TCBxT2[a0]
-	load t3,TCBxT3[a0]
-	load t4,TCBxT4[a0]
-	load t5,TCBxT5[a0]
-	load t6,TCBxT6[a0]
-	load t7,TCBxT7[a0]
-	load t8,TCBxT8[a0]
-	load t9,TCBxT9[a0]
-	load s0,TCBxS0[a0]
-	load s1,TCBxS1[a0]
-	load s2,TCBxS2[a0]
-	load s3,TCBxS3[a0]
-	load s4,TCBxS4[a0]
-	load s5,TCBxS5[a0]
-	load s6,TCBxS6[a0]
-	load s7,TCBxS7[a0]
-	load s8,TCBxS8[a0]
-	load s9,TCBxS9[a0]
-	load gp,TCBxGP[a0]
-	load fp,TCBxFP[a0]
+	load %a2,TCBxA2[%a0]
+	load %a3,TCBxA3[%a0]
+	load %a4,TCBxA4[%a0]
+	load %a5,TCBxA5[%a0]
+	load %a6,TCBxA6[%a0]
+	load %a7,TCBxA7[%a0]
+	load %t0,TCBxT0[%a0]
+	load %t1,TCBxT1[%a0]
+	load %t2,TCBxT2[%a0]
+	load %t3,TCBxT3[%a0]
+	load %t4,TCBxT4[%a0]
+	load %t5,TCBxT5[%a0]
+	load %t6,TCBxT6[%a0]
+	load %t7,TCBxT7[%a0]
+	load %t8,TCBxT8[%a0]
+	load %t9,TCBxT9[%a0]
+	load %s0,TCBxS0[%a0]
+	load %s1,TCBxS1[%a0]
+	load %s2,TCBxS2[%a0]
+	load %s3,TCBxS3[%a0]
+	load %s4,TCBxS4[%a0]
+	load %s5,TCBxS5[%a0]
+	load %s6,TCBxS6[%a0]
+	load %s7,TCBxS7[%a0]
+	load %s8,TCBxS8[%a0]
+	load %s9,TCBxS9[%a0]
+	load %gp,TCBxGP[%a0]
+	load %fp,TCBxFP[%a0]
 	# check to see if FPRs need to be saved
-	load a1,TCBxFPSR[a0]
-	csrrw r0,FPSR,a1
-	ext. a1,a1,FPStateBegin,FPStateEnd
-	beq cr0,.0003
-	load f0,TCBxF0[a0]
-	load f1,TCBxF1[a0]
-	load f2,TCBxF2[a0]
-	load f3,TCBxF3[a0]
-	load f4,TCBxF4[a0]
-	load f5,TCBxF5[a0]
-	load f6,TCBxF6[a0]
-	load f7,TCBxF7[a0]
-	load f8,TCBxF8[a0]
-	load f9,TCBxF9[a0]
-	load f10,TCBxF10[a0]
-	load f11,TCBxF11[a0]
-	load f12,TCBxF12[a0]
-	load f13,TCBxF13[a0]
-	load f14,TCBxF14[a0]
-	load f15,TCBxF15[a0]
-	load f16,TCBxF16[a0]
-	load f17,TCBxF17[a0]
-	load f18,TCBxF18[a0]
-	load f19,TCBxF19[a0]
-	load f20,TCBxF20[a0]
-	load f21,TCBxF21[a0]
-	load f22,TCBxF22[a0]
-	load f23,TCBxF23[a0]
-	load f24,TCBxF24[a0]
-	load f25,TCBxF25[a0]
-	load f26,TCBxF26[a0]
-	load f27,TCBxF27[a0]
-	load f28,TCBxF28[a0]
-	load f29,TCBxF29[a0]
-	load f30,TCBxF30[a0]
-	load f31,TCBxF31[a0]
+	load %a1,TCBxFPSR[%a0]
+	csrrw %r0,FPSR,%a1
+	ext. %a1,%a1,FPStateBegin,FPStateEnd
+	beq %cr0,.0003
+	ldfd %f0,TCBxF0[%a0]
+	ldfd %f1,TCBxF1[%a0]
+	ldfd %f2,TCBxF2[%a0]
+	ldfd %f3,TCBxF3[%a0]
+	ldfd %f4,TCBxF4[%a0]
+	ldfd %f5,TCBxF5[%a0]
+	ldfd %f6,TCBxF6[%a0]
+	ldfd %f7,TCBxF7[%a0]
+	ldfd %f8,TCBxF8[%a0]
+	ldfd %f9,TCBxF9[%a0]
+	ldfd %f10,TCBxF10[%a0]
+	ldfd %f11,TCBxF11[%a0]
+	ldfd %f12,TCBxF12[%a0]
+	ldfd %f13,TCBxF13[%a0]
+	ldfd %f14,TCBxF14[%a0]
+	ldfd %f15,TCBxF15[%a0]
+	ldfd %f16,TCBxF16[%a0]
+	ldfd %f17,TCBxF17[%a0]
+	ldfd %f18,TCBxF18[%a0]
+	ldfd %f19,TCBxF19[%a0]
+	ldfd %f20,TCBxF20[%a0]
+	ldfd %f21,TCBxF21[%a0]
+	ldfd %f22,TCBxF22[%a0]
+	ldfd %f23,TCBxF23[%a0]
+	ldfd %f24,TCBxF24[%a0]
+	ldfd %f25,TCBxF25[%a0]
+	ldfd %f26,TCBxF26[%a0]
+	ldfd %f27,TCBxF27[%a0]
+	ldfd %f28,TCBxF28[%a0]
+	ldfd %f29,TCBxF29[%a0]
+	ldfd %f30,TCBxF30[%a0]
+	ldfd %f31,TCBxF31[%a0]
 .0003:	
 	# load stack pointers
-	load a1,TCBxUSP[a0]
-	movea USP,a1
-	load a1,TCBxSSP[a0]
-	movea SSP,a1
-	load a1,TCBxHSP[a0]
-	movea HSP,a1
-	load a1,TCBxSR[a0]
-	csrrw r0,ESR0,a1
-	load a1,TCBxPC[a0]
-	csrrw r0,EPC0,a1
-	load a1,TCBxA1[a0]
-	load a0,TCBxA0[a0]
+	load %a1,TCBxUSP[%a0]
+	movea %usp,%a1
+	load %a1,TCBxSSP[%a0]
+	movea %ssp,%a1
+	load %a1,TCBxHSP[%a0]
+	movea %hsp,%a1
+	load %a1,TCBxSR[%a0]
+	csrrw %r0,ESR0,%a1
+	load %a1,TCBxPC[%a0]
+	csrrw %r0,EPC0,%a1
+	load %a1,TCBxA1[%a0]
+	load %a0,TCBxA0[%a0]
 	atom 63,3
-	csrrc r0,M_SEMA,InTimerISRFlag
+	csrrci %r0,M_SEMA,InTimerISRFlag
 	rfi
 
 
@@ -1131,62 +1325,35 @@ SwitchTask:
 # and the timer ISR forced to run.
 #
 #	Parameters
-#		a1 = number of ticks
-#		a2 = pointer to place to put return value in
+#		%a1 = number of ticks
+#		%a2 = pointer to place to put return value in
 # Returns:
 #		a0 = E_Ok after the sleep interval.
 #------------------------------------------------------------------------------
 
 FMTK_Sleep:
-  cmp cr0,a1,0						# sleep for <=0?
-  ble cr0,.0003						# giving up time slice?
+  cmpi %cr0,%a1,0						# sleep for <=0?
+  ble %cr0,.0003						# giving up time slice?
   macGetRunningTCBPointer
-  store a1,TCBTsCmdParm[a0]	# setup sleep command request
-  loadi a3,TSC_SLEEP
-  stb a3,TCBTsCmd[a0]
-	bli FemtikiTimerIrq			# Force Timer IRQ processing
-  cmp cr0,a2,0						# we allow null here, maybe no return value needed
-  beq cr0,.0002
-  load a0,TCBTsResp[a0]		# response should have been updated by timer IRQ
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+  store %a1,TCBTsCmdParm[%a0]	# setup sleep command request
+  loadi %a3,TSC_SLEEP
+  stb %a3,TCBTsCmd[%a0]
+	bli FemtikiTimerISR				# Force Timer IRQ processing
+  cmpi %cr0,%a2,0						# we allow null here, maybe no return value needed
+  beq %cr0,.0002
+  load %a0,TCBTsResp[%a0]		# response should have been updated by timer IRQ
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store a0,[a2]						# do the store to the proper address space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %a0,[%a2]						# do the store to the proper address space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
  .0002:
-  loadi a0,E_Ok
+  loadi %a0,E_Ok
   blr
 .0003:
-	bli FemtikiTimerIrq			# Force Timer IRQ processing
-  loadi a0,E_Ok
+	bli FemtikiTimerISR			# Force Timer IRQ processing
+  loadi %a0,E_Ok
   blr
-
-FMTK_StartTask:
-;  bsr  IStartTask
-  bra  	FMTK_RetOK
-
-#------------------------------------------------------------------------------
-# Exit the current task. (remains to be done)
-#
-# Parameters:
-#		none
-# Modifies:
-#		a1 = task id
-#------------------------------------------------------------------------------
-
-FMTK_ExitTask:
-	load a0,RunningID
-	# fall through to KillTask
-	
-#------------------------------------------------------------------------------
-# Parameters:
-#		B = tid of task to kill
-#------------------------------------------------------------------------------
-
-FMTK_KillTask:
-#  bl IKillTask
-	loadi a0,E_Ok
-	blr
 
 # ----------------------------------------------------------------------------
 # Select a task to run. Relatively easy as task selection is handled by
@@ -1204,74 +1371,73 @@ FMTK_KillTask:
 #; ----------------------------------------------------------------------------
 
 SelectTaskToRun:
-	push br1
-	push 0x1c,0				# push a1,a2,a3
+	push %br1
+	push %a1-%a3				# push %a1,%a2,%a3
 	# There should always be at least one task in the ready queue. It should
 	# be guarenteed to be popped within 32 tries (the number of attempts for
 	# all queues to be tested). The following limit is in case something is
 	# broken.
 .0004:
-	loadi a0,128
+	loadi %a0,128
 .0001:							#	keep popping tasks from the readyQ until a valid one
-	add. a0,a0,-1			# is found. If none valid for a long time default to
-	beq	cr0,.0002			# the OS task
-	load. a1,RDYQ
-	beq cr0,.0001
+	addi. %a0,%a0,-1		# is found. If none valid for a long time default to
+	beq	%cr0,.0002			# the OS task
+	load. %a1,RDYQ
+	beq %cr0,.0001
 	# Here we got a valid task id. If the task is still supposed to be
 	# running, push it back onto the ready queue. Otherwise go get the
 	# next task.
-	move a0,a1
-	move a3,a1				# save this
+	move %a0,%a1
+	move %a3,%a1				# save this
 	# Check for commands, if successful clear the command otherwise it will be
 	# done more than once.
-	amoswapb. a1,r0,TCBTsCmd[a0]	# clear command
-	beq cr0,.0007
-	cmp cr0,a1,TSC_FREETCB	# was the TCB "freed"	
-	bne cr0,.0005						# should use a predicate here
+	amoswapb. %a1,%r0,TCBTsCmd[%a0]	# clear command
+	beq %cr0,.0007
+	cmpi %cr0,%a1,TSC_FREETCB	# was the TCB "freed"	
+	bne %cr0,.0005						# should use a predicate here
 	bl IFreeTCB
 	b .0007
 .0005:
-	cmp cr0,a1,TSC_ALLOCTCB
-	bne cr0,.0003
-	move a1,a0
+	cmpi %cr0,%a1,TSC_ALLOCTCB
+	bne %cr0,.0003
+	move %a1,%a0
 	bl IAllocTCB
-	bne cr0,.0006
-	stb TSC_ALLOCTCB,TCBTsCmd[a1]			# repeat command if not successful
+	bne %cr0,.0006
+	stbi TSC_ALLOCTCB,TCBTsCmd[%a1]			# repeat command if not successful
 .0006:
-	store a0,TCBTsResp[a1]
-	move a0,a1
+	store %a0,TCBTsResp[%a1]
+	move %a0,%a1
 	b .0007
 .0003:
-	cmp cr0,a1,TSC_SLEEP
-	bne cr0,.0007
-	cmp cr0,a1,0
-	ble cr0,.0008
-	move a2,a0
-	load a1,TCBTsCmdParm[a0]		# a1 = timeout
-	load a0,RunningID						# a0 = running TID
+	cmpi %cr0,%a1,TSC_SLEEP
+	bne %cr0,.0007
+	cmpi %cr0,%a1,0
+	ble %cr0,.0008
+	move %a2,%a0
+	load %a1,TCBTsCmdParm[%a0]		# %a1 = timeout
+	load %a0,RunningID						# a0 = running TID
 	bl RemoveFromReadyQueue
 	bl InsertIntoTimeoutList
-	move a1,a2
+	move %a1,%a2
 .0008:
-	loadi a0,1
-.0001:
-	store a0,TCBRsResp[a1]
-	move a0,a1 	
+	loadi %a0,1
+	store %a0,TCBRsResp[%a1]
+	move %a0,%a1 	
 .0007:
-	ldbz a1,TCBStatus[a0]
-	and. r0,a1,TS_RUNNING
-	bne	cr0,.0004
-	move a0,a3									# we want the id here
+	ldbz %a1,TCBStatus[%a0]
+	andi. %r0,%a1,TS_RUNNING
+	bne	%cr0,.0004
+	move %a0,%a3									# we want the id here
 	bl InsertIntoReadyQueue
-	pop 0x1c,0
-	pop br1
+	pop %a1-%a3
+	pop %br1
 	blr
 	# Nothing in queues? There is supposed to be. Add the OS task to the queue.
 .0002:
-	loadi a0,1
+	loadi %a0,1
 	bl InsertIntoReadyQueue
-	pop 0x1c,0
-	pop br1
+	pop %a1-%a3
+	pop %br1
 	blr
 
 #// ----------------------------------------------------------------------------
@@ -1309,107 +1475,123 @@ SelectTaskToRun:
 #		The ACB semaphore is briefly locked.
 #
 # Parameters:
-#		a1 = app id
-#		a2 = priority
-#		a3 = start address
-#		a4 = start parameter
-#		a5 = affinity
-#		a6 = place to put task id
+#		%a1 = app id
+#		%a2 = priority
+#		%a3 = start address
+#		%a4 = start parameter
+#		%a5 = affinity
+#		%a6 = place to put task id
 # Returns:
 #		a0 = E_Ok, E_NoMoreTCBs or E_NoMem
-#		in [a6] task id
+#		in [%a6] task id
 #------------------------------------------------------------------------------
 
 FMTK_StartTask:
-	move br2,br1
-	load t0,RunningID
+	move %br2,%br1
+	load %t0,RunningID
 	macGetRunningTCBPtr
-	move a7,a0
-	stb TSC_ALLOCTCB,TCBTsCmd[a7]	# request a TCB from the scheduler
-	bli FemtikiTimerIRQ
-	load. a0,TCBTsResp[a7]
-	store r0,TCBTsResp[a7]
-	move t1,a0								# t1 = handle for new task
-	cmp cr0,a0,0
-	beq	cr0,.0002
-	stptr a1,TCBappid[a0]
-	stb a2,TCBPriority[a0]
-	stw a5,TCBAffinity[a0]		# todo check size
-	store 16777216,TCBbrk[a0]	# initialize the memory break virtual address
+	move %a7,%a0
+	stbi TSC_ALLOCTCB,TCBTsCmd[%a7]	# request a TCB from the scheduler
+	bli FemtikiTimerISR
+	load. %a0,TCBTsResp[%a7]
+	store %r0,TCBTsResp[%a7]
+	move %t1,%a0								# %t1 = handle for new task
+	cmpi %cr0,%a0,0
+	beq	%cr0,.0002
+	stptr %a1,TCBappid[%a0]
+	stb %a2,TCBPriority[%a0]
+	stw %a5,TCBAffinity[%a0]		# todo check size
+	storei 16777216,TCBbrk[%a0]	# initialize the memory break virtual address
 .0005:
-	loadi a0,-1
+	loadi %a0,-1
 	bl LockACBSemaphore
-		beq cr0,.0005
-		move a0,a1
+		beq %cr0,.0005
+		move %a0,%a1
 		macACBHandleToPointer
-		load a1,ACBTaskList[a0]
-		stptr a1,TCBAcbNext[a7]
-		stptr t0,ACBTaskList[a0]
+		load %a1,ACBTaskList[%a0]
+		stptr %a1,TCBAcbNext[%a7]
+		stptr %t0,ACBTaskList[%a0]
 	macUnlockACBSemaphore
-	store a4,TCBxA0[a7]				# place start parameter in a0 register
-	loadi a0,MF_IncreaseStackSize
+	store %a4,TCBxA0[%a7]				# place start parameter in a0 register
+	loadi %a0,MF_IncreaseStackSize
 	sys
-	cmp cr0,a0,0
-	beq cr0,.0003
-	add a0,a0,PGSZ
+	cmpi %cr0,%a0,0
+	beq %cr0,.0003
+	addi %a0,%a0,PGSZ
 #	addd	#PGSZ
-	stptr a0,TCBxSP[a7]
-	stptr a3,TCBxPC[a7]				# set start address
-	move a0,t1
+	stptr %a0,TCBxSP[%a7]
+	stptr %a3,TCBxPC[%a7]				# set start address
+	move %a0,%t1
 	bl InsertIntoReadyQueue
-	cmp cr0,a6,0
-  beq cr0,.0004						# we allow a null pointer here
-  csrrs r0,M_SR,0x80000		# set MPRV bit
+	cmpi %cr0,%a6,0
+  beq %cr0,.0004						# we allow a null pointer here
+  csrrsi %r0,M_SR,0x80000		# set MPRV bit
   sync
-	store t1,[a6]						# do the store to the proper address space
-  csrrc r0,M_SR,0x80000		# reset MPRV bit
+	store %t1,[%a6]						# do the store to the proper address space
+  csrrci %r0,M_SR,0x80000		# reset MPRV bit
   sync
 .0004:
-	loadi a0,E_Ok
-	blr br2
+	loadi %a0,E_Ok
+	blr %br2
 .0002:
-	loadi a0,E_NoMoreTCBs	
-	blr br2
+	loadi %a0,E_NoMoreTCBs	
+	blr %br2
 .0003:
-	loadi a0,E_NoMem
-	blr br2
+	loadi %a0,E_NoMem
+	blr %br2
 
 #------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+
+#------------------------------------------------------------------------------
+# Exit the current task. (remains to be done)
+#
+# Parameters:
+#		none
+# Modifies:
+#		%a1 = task id
 #------------------------------------------------------------------------------
 
 FMTK_ExitTask:
+	load %a0,RunningID
+	# fall through to KillTask
+	
+#------------------------------------------------------------------------------
+# Parameters:
+#		B = tid of task to kill
+#------------------------------------------------------------------------------
 
 #------------------------------------------------------------------------------
 # ToDo: finish this routine
 #------------------------------------------------------------------------------
 
 FMTK_KillTask:
-	move br2,br1
+	move %br2,%br1
 .0001:
-	loadi a0,-1
+	loadi %a0,-1
 	bl LockSysSemaphore
-	beq cr0,.0001
+	beq %cr0,.0001
 	macGetRunningTCBPtr
-	move a0,a1
+	move %a0,%a1
 	bl RemoveFromReadyQueue
 	bl RemoveFromTimeoutList
-	ldwz a2,TCBhMailboxes[a0]
+	ldwz %a2,TCBhMailboxes[%a0]
 	bl IFreeMBX
-	ldwz a2,TCBhMailboxes+2[a0]
+	ldwz %a2,TCBhMailboxes+2[%a0]
 	bl IFreeMBX
-	ldwz a2,TCBhMailboxes+4[a0]
+	ldwz %a2,TCBhMailboxes+4[%a0]
 	bl IFreeMBX
-	ldwz a2,TCBhMailboxes+6[a0]
+	ldwz %a2,TCBhMailboxes+6[%a0]
 	bl IFreeMBX
 	# Remove from list of tasks ACB has
-	load a0,TCBappid[a0]
-	load a2,ACBTaskList[a0]
+	load %a0,TCBappid[%a0]
+	load %a2,ACBTaskList[%a0]
 
 	# Mark the TCB as free, it will be freed by SelectTaskToRun
 #	atom 63,"MMM"
-#	ldbz a2,TCBStatus[]
-#	or a2,a2,TS_FREE
-#	stb a2,TCBStatus[]
+#	ldbz %a2,TCBStatus[]
+#	or %a2,%a2,TS_FREE
+#	stb %a2,TCBStatus[]
 		
 #	cmpe	TCBxAccb,x
 #	beq		0002f
@@ -1423,211 +1605,22 @@ FMTK_KillTask:
 	
 	
 #------------------------------------------------------------------------------
-# Lock a semaphore.
-# The id of the currently running task is used as the semaphore value. A task
-# id is always one or greater. So, a value of zero for the semaphore means
-# it is available. This function accepts a timeout argument which allows the
-# loop attempting to set the semaphore to be aborted after the timeout.
-#
-# Parameters:
-#		a0 = number of retry attempts
-#		a1 = semaphore variable address
-#	Returns:
-#		a0 = 1 if lock successful, 0 otherwise
-#------------------------------------------------------------------------------
-
-LockSemaphore:
-	push a2							# push a2
-	load a2,RunningID
-.0002:
-	add. a0,a0,-1
-	beq	cr0,.0001
-	amoswap. r0,a2,[a1]
-	bne	cr0,.0002
-	pop a2
-	loadi. a0,1
-	blr
-.0001:
-	pop a2							# a2
-	loadi. a0,0		# set cr0
-	blr
-
-#------------------------------------------------------------------------------
-# Lock the system semaphore.
-#
-# Parameters:
-#		a0 = number of retry attempts
-#	Returns:
-#		a0 = 1 if lock successful, 0 otherwise
-#------------------------------------------------------------------------------
-
-LockSysSemaphore:
-	push br1
-	push a1
-	loadi a1,OSSEMA
-	bl LockSemaphore		# this will setup a0 and cr0
-	pop a1
-	pop br1
-	blr
-
-#------------------------------------------------------------------------------
-# Lock the MMU semaphore.
-#
-# Parameters:
-#		a0 = number of retry attempts
-#	Returns:
-#		a0 = 1 if lock successful, 0 otherwise
-#------------------------------------------------------------------------------
-
-LockMMUSemaphore:
-	push br1
-	push a1
-	loadi a1,MMUSEMA
-	bl LockSemaphore
-	pop a1
-	pop br1
-	blr
-
-#------------------------------------------------------------------------------
-# Lock the ACB semaphore.
-#
-# Parameters:
-#		a0 = number of retry attempts
-#	Returns:
-#		a0 = 1 if lock successful, 0 otherwise
-#------------------------------------------------------------------------------
-
-LockACBSemaphore:
-	push br1
-	push a1
-	loadi a1,ACBSEMA
-	bl LockSemaphore
-	pop a1
-	pop br1
-	blr
-
-#------------------------------------------------------------------------------
-# Lock the PMT semaphore.
-#
-# Parameters:
-#		a0 = number of retry attempts
-#	Returns:
-#		a0 = 1 if lock successful, 0 otherwise
-#------------------------------------------------------------------------------
-
-LockPMTSemaphore:
-	push br1
-	push a1
-	loadi a1,PMTSEMA
-	bl LockSemaphore
-	pop a1
-	pop br1
-	blr
-
-#------------------------------------------------------------------------------
-# Lock the PMT semaphore.
-#
-# Parameters:
-#		a0 = number of retry attempts
-#	Returns:
-#		a0 = 1 if lock successful, 0 otherwise
-#------------------------------------------------------------------------------
-
-LockMSGSemaphore:
-	push br1
-	push a1
-	loadi a1,MSGSEMA
-	bl LockSemaphore
-	pop a1
-	pop br1
-	blr
-
-#------------------------------------------------------------------------------
-# macUnlock system semaphore.
-#
-# Parameters:
-#		none
-# Returns:
-#		none
-#------------------------------------------------------------------------------
-
-macro macUnlockSysSemaphore
-	store r0,OSSEMA
-endm
-
-macro macUnlockMMUSemaphore
-	store r0,MMUSEMA
-endm
-
-macro macUnlockACBSemaphore
-	store r0,ACBSEMA
-endm
-
-macro macUnlockPMTSemaphore
-	store r0,PMTSEMA
-endm
-
-macro macUnlockMSGSemaphore
-	store r0,MSGSEMA
-endm
-
-# 'C' callable functions
-
-_UnlockSysSemaphore:
-	store r0,OSSEMA
-	blr
-
-_UnlockMMUSemaphore:
-	store r0,MMUSEMA
-	blr
-
-_UnlockACBSemaphore:
-	store r0,ACBSEMA
-	blr
-
-_UnlockPMTSemaphore:
-	store r0,PMTSEMA
-	blr
-
-_UnlockMSGSemaphore:
-	store r0,MSGSEMA
-	blr
-
-#------------------------------------------------------------------------------
-# Get the system tick (milliseconds).
-#
-# Trickery involved in guarenteeing that the tick was read without an
-# intervening interrupt updating it.
-#
-# ToDo: make this a macro?
-#
-# Parameters:
-#		none
-# Returns:
-#		D,W = tick value
-#------------------------------------------------------------------------------
-
-macro macIGetTick
-	load a0,milliseconds
-endm
-
-#------------------------------------------------------------------------------
 # Link each message to the next in the free list.
 #------------------------------------------------------------------------------
 
 InitFreeMessageList:
-	loadi a0,messages
-	stptr a0,FreeMSG			# set start of free message list to first message
-	loadi a1,messages	#+OBJ_SIZE
-	add a0,a0,MSG_SIZE
+	loadi %a0,messages
+	stptr %a0,FreeMSG			# set start of free message list to first message
+	loadi %a1,messages	#+OBJ_SIZE
+	addi %a0,%a0,MSG_SIZE
 .0003:
-	stptr a0,MSG_LINK[a1]	# update link
-	add a0,a0,MSG_SIZE
-	add a1,a1,MSG_SIZE		# increment to next message
-	cmpa cr0,a1,messages_end	# done all messages?
-	blt cr0,.0003
-	sub a1,a1,MSG_SIZE		# backup
-	stptr r0,MSG_LINK[a1]	# update last link to null
+	stptr %a0,MSG_LINK[%a1]	# update link
+	addi %a0,%a0,MSG_SIZE
+	addi %a1,%a1,MSG_SIZE		# increment to next message
+	cmpai %cr0,%a1,messages_end	# done all messages?
+	blt %cr0,.0003
+	subi %a1,%a1,MSG_SIZE		# backup
+	stptr %r0,MSG_LINK[%a1]	# update last link to null
 	blr
 
 #------------------------------------------------------------------------------
@@ -1635,18 +1628,18 @@ InitFreeMessageList:
 #------------------------------------------------------------------------------
 
 InitFreeMailboxList:
-	loadi a0,mailboxes
-	stptr a0,FreeMBX			# set start of free mailbox list to first mailbox
-	loadi a1,mailboxes	#+OBJ_SIZE
-	add a0,a0,1
+	loadi %a0,mailboxes
+	stptr %a0,FreeMBX			# set start of free mailbox list to first mailbox
+	loadi %a1,mailboxes	#+OBJ_SIZE
+	addi %a0,%a0,1
 .0003:
-	store a0,MBX_LINK[a1]	# update link
-	add a0,a0,MBX_SIZE
-	add a1,a1,MBX_SIZE		# increment to next mailbox
-	cmpa cr0,a1,mailboxes_end		# done all mailboxes?
-	blt cr0,.0003
-	sub a1,a1,MBX_SIZE		# backup
-	stptr r0,MBX_LINK[a1]	# update last link to null
+	store %a0,MBX_LINK[%a1]	# update link
+	addi %a0,%a0,MBX_SIZE
+	addi %a1,%a1,MBX_SIZE		# increment to next mailbox
+	cmpai %cr0,%a1,mailboxes_end		# done all mailboxes?
+	blt %cr0,.0003
+	subi %a1,%a1,MBX_SIZE		# backup
+	stptr %r0,MBX_LINK[%a1]	# update last link to null
 	blr
 
 #------------------------------------------------------------------------------
@@ -1654,19 +1647,19 @@ InitFreeMailboxList:
 #------------------------------------------------------------------------------
 
 InitFreeTCBList:
-	loadi a0,tcbs
-	move a1,a0
-	stptr	a0,FreeTCB
+	loadi %a0,tcbs
+	move %a1,%a0
+	stptr	%a0,FreeTCB
 	b .0002
 .0001:
-	stptr a0,TBCNext[a1]
-	add a1,a1,TCB_SIZE
+	stptr %a0,TBCNext[%a1]
+	addi %a1,%a1,TCB_SIZE
 .0002:
-	add a0,a1,TCB_SIZE
-	cmpa cr0,a1,tcb_ends		# end of TCB array?
-	blt cr0,.0001
-	sub a1,a1,TCB_SIZE			# zero out the last link
-	stptr r0,TBCNext[a1]
+	addi %a0,%a1,TCB_SIZE
+	cmpai %cr0,%a1,tcb_ends		# end of TCB array?
+	blt %cr0,.0001
+	subi %a1,%a1,TCB_SIZE			# zero out the last link
+	stptr %r0,TBCNext[%a1]
 	blr
 
 #------------------------------------------------------------------------------
@@ -1674,29 +1667,29 @@ InitFreeTCBList:
 #------------------------------------------------------------------------------
 
 FMTK_Init:
-	move br2,br1
+	move %br2,%br1
 	# Clear out variable area
-	loadi a1,FemtikiVars
+	loadi %a1,FemtikiVars
 .0001:
-	store r0,[a1]
-	add a1,a1,4
-	cmpa cr0,a1,FemtikiVars_end
-	blt cr0,.0001
-	loadi a0,1
-	store a0,OSActive
-	loadi a0,acbs
-	stptr a0,RunningAID
-	loadi a0,tcbs
-	stptr a0,RunningID		# reset this
+	store %r0,[%a1]
+	add %a1,%a1,4
+	cmpa %cr0,%a1,FemtikiVars_end
+	blt %cr0,.0001
+	loadi %a0,1
+	store %a0,OSActive
+	loadi %a0,acbs
+	stptr %a0,RunningAID
+	loadi %a0,tcbs
+	stptr %a0,RunningID		# reset this
 
 	# Set stack bottoms for all the memory maps
-	loadi a1,0
-	loadi a0,MAXVPG
+	loadi %a1,0
+	loadi %a0,MAXVPG
 .0003:
-	store a0,MidStackBottoms[a1]
-	add a1,a1,4
-	cmp cr0,a1,32*4
-	blt cr0,.0003
+	store %a0,MidStackBottoms[%a1]
+	addi %a1,%a1,4
+	cmpi %cr0,%a1,32*4
+	blt %cr0,.0003
 
 	bl InitFreeMessageList
 	bl InitFreeMailboxList
@@ -1705,23 +1698,23 @@ FMTK_Init:
 	# Set interrupt groups
 	# there is only 1 CPU ATM
 	
-	loadi a0,2
-	loadi a1,0xFEE20800
+	loadi %a0,2
+	loadi %a1,0xFEE20800
 .0002:
-	store a0,[a1]
-	store r0,4[a1]
-	add a1,a1,8
-	cmpa cr0,a1,0xFEE21000
+	store %a0,[%a1]
+	store %r0,4[%a1]
+	addi %a1,%a1,8
+	cmpai %cr0,%a1,0xFEE21000
 	blt .0002
 	
 	# Set timer IRQ vector
 
-	loadi a0,FemtikiTimerISR
-	store a0,0xFECC0000
-	store r0,0xFECC0004
-	store r0,0xFECC0008
-	loadi a0,2								# enable interrupts,vector,swstk=0,CPU group #0
-	store r0,0xFECC000C
+	loadi %a0,FemtikiTimerISR
+	store %a0,0xFECC0000
+	store %r0,0xFECC0004
+	store %r0,0xFECC0008
+	loadi %a0,2								# enable interrupts,vector,swstk=0,CPU group #0
+	store %r0,0xFECC000C
 
 	bl InitAppOne
 	bl InitTaskOne
@@ -1731,32 +1724,31 @@ FMTK_Init:
 #	std		MMU+$600
 #	inca
 #	std		MMU+$602
-	blr br2
+	blr %br2
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
 
 InitAppOne:
-	loadi a0,acbs
-	loadi a1,0
+	loadi %a0,acbs
+	loadi %a1,0
 .0001:
-	store r0,[a0+a1*]
-	add a1,a1,4
-	cmp	cr0,a1,ACB_SIZE
-	blt cr0,.0001
-	loadi a1,('A' << 16) | ('C' << 8) | 'B'
-	store a1,ACBObject+OBJMagic[a0]
-	store r0,ACBmid[a0]			# system uses map #0
-	ldd		#$E00000
-	std		ACBpVidMem[a0]
-	stbi	64,ACBVideoCols[a0]
-	stbi	32,ACBVideoRows[a0]
-	stb 	r0,ACBCursorCol[a0]
-	stb		r0,ACBCursorRow[a0]
-	storei	0xCE,ACBNormAttr[a0]
-	loadi a1,1
-	stb		a1,ACBHasFocus[a0]
-	stb		a1,ACBTaskList[a0]
+	store %r0,[%a0+%a1*]
+	addi %a1,%a1,4
+	cmpi	%cr0,%a1,ACB_SIZE
+	blt %cr0,.0001
+	loadi %a1,('A' << 16) | ('C' << 8) | 'B'
+	store %a1,ACBObject+OBJMagic[%a0]
+	store %r0,ACBmid[%a0]			# system uses map #0
+	storei 0xFEC00000,ACBpVidMem[%a0]
+	stbi	64,ACBVideoCols[%a0]
+	stbi	32,ACBVideoRows[%a0]
+	stb 	%r0,ACBCursorCol[%a0]
+	stb		%r0,ACBCursorRow[%a0]
+	storei	0xCE,ACBNormAttr[%a0]
+	loadi %a1,1
+	stb		%a1,ACBHasFocus[%a0]
+	stb		%a1,ACBTaskList[%a0]
 	blr
 
 #------------------------------------------------------------------------------
@@ -1765,22 +1757,22 @@ InitAppOne:
 #------------------------------------------------------------------------------
 
 InitTaskOne:
-	move br2,br1
-	loadi a0,tcbs
-	loadi a1,acbs						# appid 1 is system app
-	stptr a1,TCBappid[a0]
-	stb	1,TCBHasFocus[a0]
-	move a1,a0
-	stptr	a0,TCBtid[a1]
-	stptr	a0,TCBNext[a1]
-	stptr	a0,TCBPrev[a1]
-	stbi TS_RUNNING,TCBStatus[a1]
-	stbi 31,TCBPriority[a1]
+	move %br2,%br1
+	loadi %a0,tcbs
+	loadi %a1,acbs						# appid 1 is system app
+	stptr %a1,TCBappid[%a0]
+	stbi	1,TCBHasFocus[%a0]
+	move %a1,%a0
+	stptr	%a0,TCBtid[%a1]
+	stptr	%a0,TCBNext[%a1]
+	stptr	%a0,TCBPrev[%a1]
+	stbi TS_RUNNING,TCBStatus[%a1]
+	stbi 31,TCBPriority[%a1]
 	bl InsertIntoReadyQueue
-	blr br2
+	blr %br2
 
 
-include "tcb.qpa"
-include "msg.qpa"
-include "..\mem_support.qpa"
+.include "tcba.qpa"
+.include "msga.qpa"
+.include "../mem_support.qpa"
 
