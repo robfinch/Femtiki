@@ -116,9 +116,9 @@ _FindFreePage:
 #	translated.
 #
 # Parameters:
-#		%a0 = virtual address to translate
+#		a0 = virtual address to translate
 # Returns:
-#		%a0 = physical address
+#		a0 = physical address
 # ------------------------------------------------------------------------------
 
 _GetPageTableEntryAddress:
@@ -132,7 +132,7 @@ _GetPageTableEntryAddress:
 	bgt %cr0,.0002				# check valid bit (bit 31)
 .0003:
 	addi. %a5,%a5,-1
-	ble %cr0,.notFound
+	ble %cr0,.0005
 	srli %a4,%a3,29				# Extra PTE type bits
 	andi %a4,%a4,3
 	cmpi %cr0,%a4,2
@@ -159,7 +159,7 @@ _GetPageTableEntryAddress:
 	bl _FindFreePage
 	macUnlockPMTSemaphore
 	cmpi %cr0,%a0,0
-	beq %cr0,.0005
+	peq %cr0,.0005
 	bl _ClearPage
 	# set the PTP to point to the page
 	srli %a0,%a0,LOG_PGSZ
@@ -194,7 +194,7 @@ _PageFaultHandlerISR:
 	loadi %a0,-1
 	bl LockPMTSemaphore
 	bl _FindFreePage
-	bne %cr0,.0001
+	pne %cr0,.0001
 	# Here there are no more free pages
 	macUnlockPMTSemaphore
 	# Here a free page was found
@@ -236,7 +236,7 @@ _PageFaultHandlerISR:
 	bl _FindFreePage
 	macUnlockPMTSemaphore
 	cmp %cr0,%a0,0
-	beq %cr0,.0005
+	peq %cr0,.0005
 	bl _ClearPage
 	# set the PTP to point to the page
 	srl %a0,%a0,LOG_PGSZ

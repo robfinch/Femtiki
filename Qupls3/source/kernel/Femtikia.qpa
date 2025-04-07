@@ -48,12 +48,57 @@
 .set MMUxPADRV,0xFFF40060
 
 .set CB_XOR,0x00312345
+.set SR,0x3004
+.set XS,0x3010
 .set ESR0,0x3080
 .set EPC0,0x3108
 .set FPStateBegin,3
 .set FPStateEnd,4
 
 	.text
+
+#------------------------------------------------------------------------------
+# Perform an address range check on an argument. Note we use only 1 branch
+# here by combining CR register values.
+#------------------------------------------------------------------------------
+
+.macro macAdrCheck regno
+	cmpai %cr0,\regno,0						# NULL pointer?
+	cmpai %cr1,\regno,0x00800000		# too low
+	cmpai %cr2,\regno,0xC0000000		# too high
+	cror %cr0?eq,%cr0?eq,%cr1?lt
+	crorc %cr0?eq,%cr0?eq,%cr2?le
+	peq %cr0,.0001\@
+	loadi %a0,E_Arg
+	b OSExit
+.0001\@:
+.endm
+
+#------------------------------------------------------------------------------
+# Perform a store operation using the previous mode found on the stack.
+#------------------------------------------------------------------------------
+
+.macro macStorePM
+  push %a2
+	csrrci %a2,M_SR,0x1C0000	# clear MPRV
+	csrrsi %r0,M_SR,0x180000	# select mode from om on stack
+  sync
+	store %a0,[%a1]						# do the store to the proper address space
+	csrrw %r0,M_SR,%a2				# restore SR settings
+  sync
+  pop %a2
+.endm
+
+.macro macStorePtrPM
+  push %a2
+	csrrci %a2,M_SR,0x1C0000	# clear MPRV
+	csrrsi %r0,M_SR,0x180000	# select mode from om on stack
+  sync
+	stptr %a0,[%a1]						# do the store to the proper address space
+	csrrw %r0,M_SR,%a2				# restore SR settings
+  sync
+  pop %a2
+.endm
 
 #------------------------------------------------------------------------------
 # Convert a TCB handle into a pointer to the corresponding TCB.
@@ -169,16 +214,20 @@ TCBClearStatusBit:
 # id is always one or greater. So, a value of zero for the semaphore means
 # it is available. This function accepts a timeout argument which allows the
 # loop attempting to set the semaphore to be aborted after the timeout.
+# Semaphores outside of the kernel space are detected and are handled using
+# the address space of the caller.
 #
 # Parameters:
 #		a0 = number of retry attempts
-#		%a1 = semaphore variable address
+#		a1 = semaphore variable address
 #	Returns:
 #		a0 = 1 if lock successful, 0 otherwise
 #------------------------------------------------------------------------------
 
 LockSemaphore:
-	push %a2				# push %a2
+	cmpi cr0,%a1,0xFFF80000			# if that its a kernel var space address
+	blt .0003										# got lock user-land semaphore
+	push %a2
 	load %a2,RunningID
 .0002:
 	addi. %a0,%a0,-1
@@ -189,9 +238,92 @@ LockSemaphore:
 	loadi. %a0,1
 	blr
 .0001:
-	pop %a2					# 
+	pop %a2
 	loadi. %a0,0		# set %cr0
 	blr
+.0003:
+	push %a2-%a3
+	load %a2,RunningID
+.0004:
+	addi. %a0,%a0,-1
+	beq	%cr0,.0005
+	csrrci %a3,M_SR,0x1C0000	# clear MPRV
+	csrrsi %r0,M_SR,0x180000	# select mode from om on stack
+  sync
+	amoswap. %r0,%a2,[%a1]		# do the store to the proper address space
+	csrrw %r0,M_SR,%a3				# restore SR settings
+  sync
+	bne	%cr0,.0004
+	pop %a2-%a3
+	loadi. %a0,1
+	blr
+.0005:
+	pop %a2-%a3
+	loadi. %a0,0
+	blr
+
+#------------------------------------------------------------------------------
+# Lock a semaphore.
+# The id of the currently running task is used as the semaphore value. A task
+# id is always one or greater. So, a value of zero for the semaphore means
+# it is available. This function accepts a timeout argument which allows the
+# loop attempting to set the semaphore to be aborted after the timeout.
+# Semaphores must be outside of the kernel space and are handled using
+# the address space of the caller.
+#
+# Parameters:
+#		a1 = number of retry attempts
+#		a2 = semaphore variable address
+#		a3 = key value to stuff (eg task id)
+#	Returns:
+#		a0 = E_Ok if lock successful,
+#				 E_Busy if semaphore cannot be locked
+#				 E_Arg if a bad address was passed
+#------------------------------------------------------------------------------
+
+FMTK_LockSemaphore:
+	macAdrCheck %a2
+.0004:
+	addi. %a1,%a1,-1
+	beq	%cr0,.0005
+	csrrci %a0,M_SR,0x1C0000	# clear MPRV
+	csrrsi %r0,M_SR,0x180000	# select mode from om on stack
+  sync
+	amoswap. %r0,%a3,[%a2]		# do the store to the proper address space
+	csrrw %r0,M_SR,%a0				# restore SR settings
+  sync
+	bne	%cr0,.0004
+	loadi %a0,E_Ok
+	b OSExit
+.0005:
+	loadi %a0,E_Busy
+	b OSExit
+
+#------------------------------------------------------------------------------
+# Unlock a semaphore.
+#
+# Parameters:
+#		a1 = semaphore variable address
+#		a2 = key value
+#	Returns:
+#		a0 = E_Ok if unlock successful,
+#				 E_NotOwner if semaphore cannot be unlocked
+#------------------------------------------------------------------------------
+
+FMTK_UnlockSemaphore:
+	macAdrCheck %a1
+	csrrci %a0,M_SR,0x1C0000	# clear MPRV
+	csrrsi %r0,M_SR,0x180000	# select mode from om on stack
+  sync
+	amoclear. %r0,%a2,[%a1]		# do the store to the proper address space
+	csrrw %r0,M_SR,%a0				# restore SR settings
+  sync
+  pne %cr0,.0005
+	loadi %a0,E_Ok
+	b OSExit
+.0005:
+	loadi %a0,E_NotOwner
+	b OSExit
 
 #------------------------------------------------------------------------------
 # Lock the system semaphore.
@@ -395,10 +527,9 @@ OSCall:
 	# call the OS function (eg written in C)
 	# we carefully did not modify any registers, so the arguments in registers
 	# should still be correct.
-	blrl %br1	
+	blr %br1
   # Stuff the error response return value into the right stack position so
   # they it is popped into the a0 register for return
-  store %a0,428[%sp]					# a0 should be here
 	# fall through to exit
 
 #------------------------------------------------------------------------------
@@ -412,6 +543,7 @@ OSCall:
 #------------------------------------------------------------------------------
 
 OSExit:
+  store %a0,428[%sp]					# a0 should be here
 	pop %a0
 	move %xh,%a0
 	pop %cr0-%lc					# get CRs,BRs and LC
@@ -446,9 +578,7 @@ OSCallBadFunc:
 
 OSCallBadFunc2:
   loadi	%a0,E_Func
-FMTK_RetErr:
-  store %a0,428[%sp]				# a0 should be here
-  b OSExit
+	b OSExit
 
 #------------------------------------------------------------------------------
 # Some useful OS return points.
@@ -457,7 +587,6 @@ FMTK_RetErr:
 # Exit OS and return an OKAY status
 FMTK_RetOK:
 	loadi %a0,E_OK
-	store %a0,428[%sp]
 	b	OSExit
 
 #------------------------------------------------------------------------------
@@ -488,7 +617,7 @@ OSCallTable:
 	.4byte	FMTK_Sleep							# 5
 	.4byte	FMTK_AllocMbx
 	.4byte		FMTK_FreeMbx
-#	.4byte		FMTK_PostMsg
+	.4byte		FMTK_PostMsg
 	.4byte    OSCallBadFunc
 	.4byte		FMTK_SendMsg
 	.4byte		FMTK_WaitMsg						# 10
@@ -549,17 +678,18 @@ OSCallTable:
 	.4byte    FMTK_GetRunningTCBPointer	# 47
 	.4byte		OSCallBadFunc							 # 48
 	.4byte		DumpTCBs								# 49
+	.4byte		FMTK_LockSemaphore			# 50
+	.4byte		FMTK_UnlockSemaphore		# 51
 
-.set NUM_OSFUNC,50	#($-OSCallTbl) / 2
+.set NUM_OSFUNC,52	#($-OSCallTbl) / 2
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
 
 FMTK_Initialize:
-	move %br2,%br1
   bl FMTK_Init
   loadi %a0,E_Ok
-  blr %br2
+  b OSExit
  
 #------------------------------------------------------------------------------
 # Get the task id for the currently running task.
@@ -579,27 +709,19 @@ GetCurrentTid:
 # Get the task id for the currently running task.
 #
 # Parameters:
-#		%a1 = place to put task id
+#		a1 = place to put task id
 # Returns:
 #		a0 = status, E_Ok or E_Arg if not a valid pointer in %a1
 #		task id at address given in %a1
 #------------------------------------------------------------------------------
 
 FMTK_GetCurrentTid:
-	cmpi %cr0,%a1,0						# check for NULL pointer
-	beq %cr0,.0001
+	macAdrCheck %a1
 	load %a0,RunningID
 	macTCBPointerToHandle
-  csrrsi %r0,M_SR,0x80000		# set MPRV bit
-  sync
-	store %a0,[%a1]						# do the store to the proper addres space
-  csrrci %r0,M_SR,0x80000		# reset MPRV bit
-  sync
+	macStorePM
 	loadi %a0,E_Ok
-	blr
-.0001:
-	loadi %a0,E_Arg
-	blr
+	b OSExit
 
 #------------------------------------------------------------------------------
 # (not used - use mprv bit instead)
@@ -636,26 +758,18 @@ ConvertVirtualToPhysical:
 # Get the IRQ flag which a CPU local global variable.
 #
 # Parameters:
-#		%a1 = place to put flag
+#		a1 = place to put flag
 # Returns:
 #		a0 = status, E_Ok or E_Arg if not a valid pointer in %a1
 #		IRQ flag at address given in %a1
 #------------------------------------------------------------------------------
 
 GetIRQFlag:
-	cmpi %cr0,%a1,0			# check for NULL pointer
-	beq %cr0,.0001
+	macAdrCheck %a1
   ldbz %a0,IRQFlag		# get the flag
-  csrrsi %r0,M_SR,0x80000		# set MPRV bit
-  sync
-	store %a0,[%a1]						# do the store to the proper addres space
-  csrrci %r0,M_SR,0x80000		# reset MPRV bit
-  sync
+  macStorePM
 	loadi %a0,E_Ok
-	blr
-.0001:
-	loadi %a0,E_Arg
-	blr
+	b OSExit
 
 #------------------------------------------------------------------------------
 # Set the IRQ flag which a CPU local global variable.
@@ -669,7 +783,7 @@ GetIRQFlag:
 SetIRQFlag:
   stb %a1,IRQFlag
   loadi %a0,E_Ok
-  blr
+  b OSExit
 
 #------------------------------------------------------------------------------
 # Accessors
@@ -690,21 +804,16 @@ SetIRQFlag:
 FMTK_GetTaskAppId:
   cmpai %cr0,%a1,0
   beq %cr0,.0001
-	cmpi %cr0,%a2,0			# check for NULL pointer
-	beq %cr0,.0001
+  macAdrCheck %a2
 	load %a0,RunningID
 	load %a0,TCBappid[%a0]
 	macACBPointerToHandle
-  csrrsi %r0,M_SR,0x80000		# set MPRV bit
-  sync
-	store %a0,[%a2]						# do the store to the proper addres space
-  csrrci %r0,M_SR,0x80000		# reset MPRV bit
-  sync
+	macStorePM
 	loadi %a0,E_Ok
-	blr
+	b OSExit
 .0001:
 	loadi %a0,E_Arg
-	blr
+	b OSExit
 
 #------------------------------------------------------------------------------
 # Set the owning app id for the task.
@@ -727,10 +836,10 @@ FMTK_SetTaskAppId:
 	macACBHandleToPointer
 	stptr %a0,TCBappid[%a1]
 	loadi %a0,E_Ok
-	blr
+	b OSExit
 .0001:
 	loadi %a0,E_Arg
-	blr
+	b OSExit
 
 #------------------------------------------------------------------------------
 # Get the task associated with the app.
@@ -743,22 +852,19 @@ FMTK_SetTaskAppId:
 FMTK_GetAppTaskId:
   cmpai %cr0,%a1,0
   beq %cr0,.0001
-	cmpi %cr0,%a2,0			# check for NULL pointer
-	beq %cr0,.0001
+  macAdrCheck %a2
 	move %a0,%a1				# a0 = app id
 	macACBHandleToPointer
 	load %a0,ACBTask[%a0]
 	macTCBPointerToHandle
-  csrrsi %r0,M_SR,0x80000		# set MPRV bit
-  sync
-	store %a0,[%a2]						# do the store to the proper addres space
-  csrrci %r0,M_SR,0x80000		# reset MPRV bit
-  sync
+	load %a0,TCBappid[a0]
+	move %a1,%a2
+	macStorePM
 	loadi %a0,E_Ok
-	blr
+	b OSExit
 .0001:
 	loadi %a0,E_Arg
-	blr
+	b OSExit
 
 #------------------------------------------------------------------------------
 # Set the task associated with the app.
@@ -773,7 +879,7 @@ FMTK_SetTaskId:
   macTCBHandleToPointer
   stptr %a1,RunningID
   loadi %a0,E_Ok
-  blr
+  b OSExit
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
@@ -782,16 +888,12 @@ FMTK_GetCurrentMid:
 	load %a0,RunningID
 	load %a0,TCBappid[%a0]
 	ldbz %a0,ACBmid[%a0]
-  csrrsi %r0,M_SR,0x80000		# set MPRV bit
-  sync
-	store %a0,[%a1]						# do the store to the proper addres space
-  csrrci %r0,M_SR,0x80000		# reset MPRV bit
-  sync
+	macStorePM
 	loadi %a0,E_Ok
-	blr
+	b OSExit
 .0001:
 	loadi %a0,E_Arg
-	blr
+	b OSExit
 
 #------------------------------------------------------------------------------
 # Parameters:
@@ -802,22 +904,17 @@ FMTK_GetCurrentMid:
 FMTK_GetMid:
 	cmpi %cr0,%a1,0
 	beq %cr0,.0001
-	cmpi %cr0,%a2,0	
-	beq %cr0,.0001
+	macAdrCheck %a2
 	move %a0,%a1
 	macTCBHandleToPointer
 	load %a0,TCBappid[%a0]
 	ldbz %a0,ACBmid[%a0]
-  csrrsi %r0,M_SR,0x80000		# set MPRV bit
-  sync
-	store %a0,[%a2]						# do the store to the proper addres space
-  csrrci %r0,M_SR,0x80000		# reset MPRV bit
-  sync
+	macStorePM
 	loadi %a0,E_Ok
-	blr
+	b OSExit
 .0001:
 	loadi %a0,E_Arg
-	blr
+	b OSExit
 	
 #------------------------------------------------------------------------------
 # Get a pointer to the TCB for the currently running task.
@@ -846,19 +943,11 @@ GetRunningTCBPointer:
 #------------------------------------------------------------------------------
 
 FMTK_GetRunningTCBPointer:
-  cmpi %cr0,%a1,0						# check for null pointer
-  beq %cr0,.0001
+	macAdrCheck %a1
 	macGetRunningTCBPointer
-  csrrsi %r0,M_SR,0x80000		# set MPRV bit
-  sync
-	stptr %a0,[%a1]						# do the store to the proper address space
-  csrrci %r0,M_SR,0x80000		# reset MPRV bit
-  sync
+	macStorePtrPM
 	loadi %a0,E_Ok
-	blr
-.0001:
-	loadi %a0,E_Arg
-	blr
+	b OSExit
 
 #------------------------------------------------------------------------------
 # Decrement the timeout. Only the timeout at the head of the list need be
@@ -886,7 +975,7 @@ DecrementTimeout:
 	load.	%a0,TimeoutList				# a0 = pointer to timeout list
 	beq %cr0,.0001
 	load. %a1,TCBTimeout[%a0]
-	bgt %cr0,.0002
+	pgt %cr0,.0002
 	bl PopTimeoutList
 	bl InsertIntoReadyQueue
 	b .0003
@@ -924,9 +1013,9 @@ SchedulerIRQHelper:
 	bl DecrementTimeout
 	ldbz %a1,TCBPriority[%a0]		# very high priority > 59, don't switch
 	cmpai %cr0,%a1,60
-	bge %cr0,.0002
+	pge %cr0,.0002
 	cmpai %cr0,%a5,3							# allow the task to run for 3 ticks
-	blt %cr0,.0002
+	plt %cr0,.0002
 	bl SelectTaskToRun
 	stptr %a0,RunningID
 .0002:
@@ -977,7 +1066,7 @@ FemtikiTimerISR:
 	move %a5,%a0									# save a copy of the id
 	xor %a4,%a0,%a4								# %a4 = flag if running changed
 	ldbz. %a1,TCBException[%a0]
-	beq %cr0,.0001
+	peq %cr0,.0001
 	# Exception processing code
 	# Causes a transfer to the exception handler
 	store %a1,TCBxA0[%a0]					# save exception code in %a0
@@ -998,7 +1087,7 @@ FemtikiTimerISR:
 	pop %cr0
 	pop %a0-%a6								# get back a0 to %a6
 	# We need the rfi to execute without an interrupt between the csrrc and rfi
-	atom 63,3
+	atom 63,.0004
 	csrrci %r0,M_SEMA,InTimerISRFlag
 	rfi
 	# Return, but do not flag as ISR complete. We are returning to the ISR.
@@ -1051,8 +1140,6 @@ SwitchTask:
 	move %a1,cr3
 	store %a1,TCBxCR3[%a0]
 	move %a1,cr4
-.0004:	
-	bbf %cr7,.0004	
 	store %a1,TCBxCR4[%a0]
 	move %a1,cr5
 	store %a1,TCBxCR5[%a0]
@@ -1063,8 +1150,6 @@ SwitchTask:
 	# save branch registers
 	move %a1,%br1
 	store %a1,TCBxBR1[%a0]
-.0005:	
-	bbf %cr7,.0005	
 	move %a1,%br2
 	store %a1,TCBxBR2[%a0]
 	move %a1,%br3
@@ -1078,8 +1163,6 @@ SwitchTask:
 	# save loop counter
 	move %a1,%lc
 	store %a1,TCBxLC[%a0]
-.0006:	
-	bbf %cr7,.0006
 	# exception handler address
 	move %a1,xh
 	store %a1,TCBxXH[%a0]
@@ -1090,89 +1173,69 @@ SwitchTask:
 	store %a5,TCBxA5[%a0]
 	store %a6,TCBxA6[%a0]
 	store %a7,TCBxA7[%a0]
-.0007:
-	bbf %cr7,.0007
 	store %t0,TCBxT0[%a0]
 	store %t1,TCBxT1[%a0]
 	store %t2,TCBxT2[%a0]
 	store %t3,TCBxT3[%a0]
 	store %t4,TCBxT4[%a0]
 	store %t5,TCBxT5[%a0]
-.0008:
-	bbf %cr7,.0008
 	store %t6,TCBxT6[%a0]
 	store %t7,TCBxT7[%a0]
 	store %t8,TCBxT8[%a0]
 	store %t9,TCBxT9[%a0]
 	store %s0,TCBxS0[%a0]
 	store %s1,TCBxS1[%a0]
-.0009:
-	bbf %cr7,.0009
 	store %s2,TCBxS2[%a0]
 	store %s3,TCBxS3[%a0]
 	store %s4,TCBxS4[%a0]
 	store %s5,TCBxS5[%a0]
 	store %s6,TCBxS6[%a0]
-.0010:
-	bbf %cr7,.0010
 	store %s7,TCBxS7[%a0]
 	store %s8,TCBxS8[%a0]
 	store %s9,TCBxS9[%a0]
 	store %gp,TCBxGP[%a0]
 	store %fp,TCBxFP[%a0]
-.0011:
-	bbf %cr7,.0011
 	csrrd %a1,SR
 	store %a1,TCBxSR[%a0]
 	# check to see if FPRs need to be saved
 	csrrd %a1,FPSR
 	store %a1,TCBxFPSR[%a0]
-	ext. %a1,%a1,FPStateBegin,FPStateEnd
-	beq %cr0,.0002
+	csrrci %a1,XS,3
+	and. %a1,%a1,3
+	cmpi %cr0,%a1,3
+	bne %cr0,.0002
 	stfd %f0,TCBxF0[%a0]
 	stfd %f1,TCBxF1[%a0]
 	stfd %f2,TCBxF2[%a0]
-.0012:
-	bbf %cr7,.0012
 	stfd %f3,TCBxF3[%a0]
 	stfd %f4,TCBxF4[%a0]
 	stfd %f5,TCBxF5[%a0]
 	stfd %f6,TCBxF6[%a0]
 	stfd %f7,TCBxF7[%a0]
 	stfd %f8,TCBxF8[%a0]
-.0013:
-	bbf %cr7,.0013
 	stfd %f9,TCBxF9[%a0]
 	stfd %f10,TCBxF10[%a0]
 	stfd %f11,TCBxF11[%a0]
 	stfd %f12,TCBxF12[%a0]
 	stfd %f13,TCBxF13[%a0]
 	stfd %f14,TCBxF14[%a0]
-.0014:
-	bbf %cr7,.0014
 	stfd %f15,TCBxF15[%a0]
 	stfd %f16,TCBxF16[%a0]
 	stfd %f17,TCBxF17[%a0]
 	stfd %f18,TCBxF18[%a0]
 	stfd %f19,TCBxF19[%a0]
 	stfd %f20,TCBxF20[%a0]
-.0015:
-	bbf %cr7,.0015
 	stfd %f21,TCBxF21[%a0]
 	stfd %f22,TCBxF22[%a0]
 	stfd %f23,TCBxF23[%a0]
 	stfd %f24,TCBxF24[%a0]
 	stfd %f25,TCBxF25[%a0]
 	stfd %f26,TCBxF26[%a0]
-.0016:
-	bbf %cr7,.0016
 	stfd %f27,TCBxF27[%a0]
 	stfd %f28,TCBxF28[%a0]
 	stfd %f29,TCBxF29[%a0]
 	stfd %f30,TCBxF30[%a0]
 	stfd %f31,TCBxF31[%a0]
-.0017:
-	bbf %cr7,.0017
 .0002:	
 	# save stack pointers and branch registers
 	movea %a1,%usp
@@ -1185,8 +1248,6 @@ SwitchTask:
 	store %a1,TCBxPC[%a0]
 	csrrd %a1,ESR0
 	store %a1,TCBxSR[%a0]
-.0018:
-	bbf %cr7,.0018
 	# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	# Load the destination context
 	# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1341,18 +1402,15 @@ FMTK_Sleep:
   cmpi %cr0,%a2,0						# we allow null here, maybe no return value needed
   beq %cr0,.0002
   load %a0,TCBTsResp[%a0]		# response should have been updated by timer IRQ
-  csrrsi %r0,M_SR,0x80000		# set MPRV bit
-  sync
-	store %a0,[%a2]						# do the store to the proper address space
-  csrrci %r0,M_SR,0x80000		# reset MPRV bit
-  sync
- .0002:
+  move %a1,%a2
+  macStorePM
+.0002:
   loadi %a0,E_Ok
-  blr
+  b OSExit
 .0003:
 	bli FemtikiTimerISR			# Force Timer IRQ processing
   loadi %a0,E_Ok
-  blr
+  b OSExit
 
 # ----------------------------------------------------------------------------
 # Select a task to run. Relatively easy as task selection is handled by
@@ -1393,15 +1451,15 @@ SelectTaskToRun:
 	amoswapb. %a1,%r0,TCBTsCmd[%a0]	# clear command
 	beq %cr0,.0007
 	cmpi %cr0,%a1,TSC_FREETCB	# was the TCB "freed"	
-	bne %cr0,.0005						# should use a predicate here
+	pne %cr0,.0005						# should use a predicate here
 	bl IFreeTCB
 	b .0007
 .0005:
 	cmpi %cr0,%a1,TSC_ALLOCTCB
-	bne %cr0,.0003
+	pne %cr0,.0003
 	move %a1,%a0
 	bl IAllocTCB
-	bne %cr0,.0006
+	pne %cr0,.0006
 	stbi TSC_ALLOCTCB,TCBTsCmd[%a1]			# repeat command if not successful
 .0006:
 	store %a0,TCBTsResp[%a1]
@@ -1411,7 +1469,7 @@ SelectTaskToRun:
 	cmpi %cr0,%a1,TSC_SLEEP
 	bne %cr0,.0007
 	cmpi %cr0,%a1,0
-	ble %cr0,.0008
+	ple %cr0,.0008
 	move %a2,%a0
 	load %a1,TCBTsCmdParm[%a0]		# %a1 = timeout
 	load %a0,RunningID						# a0 = running TID
@@ -1486,7 +1544,6 @@ SelectTaskToRun:
 #------------------------------------------------------------------------------
 
 FMTK_StartTask:
-	move %br2,%br1
 	load %t0,RunningID
 	macGetRunningTCBPointer
 	move %a7,%a0
@@ -1523,21 +1580,22 @@ FMTK_StartTask:
 	move %a0,%t1
 	bl InsertIntoReadyQueue
 	cmpi %cr0,%a6,0
-  beq %cr0,.0004						# we allow a null pointer here
-  csrrsi %r0,M_SR,0x80000		# set MPRV bit
+  peq %cr0,.0004						# we allow a null pointer here
+	csrrci %a0,M_SR,0x1C0000	# clear MPRV
+	csrrsi %r0,M_SR,0x180000	# select mode from om on stack
   sync
-	store %t1,[%a6]						# do the store to the proper address space
-  csrrci %r0,M_SR,0x80000		# reset MPRV bit
+	store %t1,[%a0]						# do the store to the proper address space
+	csrrw %r0,M_SR,%a0				# restore SR settings
   sync
 .0004:
 	loadi %a0,E_Ok
-	blr %br2
+	b OSExit
 .0002:
 	loadi %a0,E_NoMoreTCBs	
-	blr %br2
+	b OSExit
 .0003:
 	loadi %a0,E_NoMem
-	blr %br2
+	b OSExit
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
