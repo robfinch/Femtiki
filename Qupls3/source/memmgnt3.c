@@ -21,10 +21,10 @@
 //                                                                          
 // ============================================================================
 //
-#include "../inc/const.h"
 #include "../inc/config.h"
-#include "../inc/errno.h"
-#include "./kernel/types.h"
+#include "../inc/const.h"
+//#include "../inc/errno.h"
+#include "../inc/types.h"
 
 #define NPAGES	65536
 #define CARD_MEMORY		0xFFFFFFFFFFCE0000
@@ -39,6 +39,7 @@
 
 extern byte *os_brk;
 
+extern int errno;
 extern __int8 *osmem;
 extern int highest_data_word;
 extern __int16 mmu_freelist;		// head of list of free pages
@@ -155,6 +156,8 @@ static unsigned int round16k(register unsigned int amt)
 
 void init_memory_management()
 {
+	unsigned __int32* pACB;
+
 	// System break positions.
 	// All breaks start out at address 16777216. Addresses before this are
 	// reserved for the video frame buffer. This also allows a failed
@@ -162,8 +165,11 @@ void init_memory_management()
 	DBGDisplayChar('A');
 	sys_pages_available = NPAGES;
   
-  // Allocate 16MB to the OS
-  osmem = pt_alloc(16777215,7);
+  // Allocate 16MB to the OS, 8MB OS, 8MB video frame buffer
+  osmem = pt_alloc(8388607,7);
+  // Allocate video frame buffer
+  pACB = GetRunningACBPtr();
+  pACB[246] = pt_alloc(8388607,7);
 	DBGDisplayChar('a');
 }
 
@@ -265,29 +271,6 @@ byte *pt_free(byte *vadr)
 	}
 	while (count < NPAGES);
 	return (vadr);
-}
-
-int mmu_AllocateMap()
-{
-	int count;
-	
-	for (count = 0; count < NR_MAPS; count++) {
-		if (((mmu_FreeMaps >> hSearchMap) & 1)==0) {
-			mmu_FreeMaps |= (1 << hSearchMap);
-			return (hSearchMap);
-		}
-		hSearchMap++;
-		if (hSearchMap >= NR_MAPS)
-			hSearchMap = 0;
-	}
-	throw (errno = E_NoMoreACBs);
-}
-
-void mmu_FreeMap(register int mapno)
-{
-	if (mapno < 0 || mapno >= NR_MAPS)
-		throw (errno = E_BadMapno);
-	mmu_FreeMaps &= ~(1 << mapno);	
 }
 
 // Returns:

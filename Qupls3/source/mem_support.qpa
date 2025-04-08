@@ -68,8 +68,8 @@ _ClearPage:
 # Parameters:
 #		none
 # Returns:
-#		%a0 = address of page (zero if no page available)
-#		%cr0.eq set if no page found, zero otherwise
+#		a0 = address of page (zero if no page available)
+#		cr0.eq set if no page found, zero otherwise
 # ------------------------------------------------------------------------------
 
 _FindFreePage:
@@ -81,7 +81,7 @@ _FindFreePage:
 	load %a2,[%a0]		# get alloc status
 	cntlo %a3,%a2			# find the first zero
 	cmp %cr0,%a3,32		# 32 1's mean all pages in group allocated
-	bne %cr0,.0001
+	pne %cr0,.0001
 	addi %a0,%a0,4			# move to next group
 	cmpai %cr0,%a0,_PAMend	# end of table?
 	blt %cr0,.0002
@@ -158,7 +158,7 @@ _GetPageTableEntryAddress:
 	bl LockPMTSemaphore
 	bl _FindFreePage
 	macUnlockPMTSemaphore
-	cmpi %cr0,%a0,0
+	cmpi %cr0,%a0,0				# if page could not be allocated, return NULL pointer
 	peq %cr0,.0005
 	bl _ClearPage
 	# set the PTP to point to the page
@@ -204,8 +204,8 @@ _PageFaultHandlerISR:
 	# Should add the base address of the memory from the region table
 	loadi %a5,8					# maximum numober of levels of page tables (limits looping)
 	load %a1,MMU_PTBR		# %a1 = address of page table
-	load t0,MMU_PFA			# t0 = fault address (virtual address)
-	srli %a2,t0,26				# %a2 = index into root page table
+	load %t0,MMU_PFA			# t0 = fault address (virtual address)
+	srli %a2,%t0,26				# %a2 = index into root page table
 	loada %a6,[%a1+%a2*4]	# %a6 = PTE address
 	load. %a3,[%a6]				# Get the PTE
 	bgt %cr0,.0002				# check valid bit (bit 31)
@@ -217,7 +217,7 @@ _PageFaultHandlerISR:
 .0004:
 	andi %a4,%a3,0x1FFFFFFF	# Extract PPN
 	slli %a4,%a4,LOG_PGSZ		# Turn into an address
-	srli %a2,t0,14					# extract vadr bits 14 to 25
+	srli %a2,%t0,14					# extract vadr bits 14 to 25
 	andi %a2,%a2,0xFFF				# convert to index into page
 	slli %a2,%a2,2						# convert index to page offset
 	or %a6,%a2,%a4						# %a6 = pointer to entry now
@@ -248,6 +248,3 @@ _PageFaultHandlerISR:
 	pop %a0-%t0
 	pop %br1
 	rfi
-	
-
-		

@@ -37,24 +37,24 @@
 # These OS structures and variables are statically allocatedfor now until the
 # the OS is in a better working state.
 # 65536 bits (8kB)
-	.data
-
+	.bss
+	.align 4
 .set _PAM,0x00002000										
 .set _PAMend,0x00004000
 # 65536 16B PMTEs
 .set _PageManagementTable,0x00004000		
 .set _PageManagementTableEnd,0x00104000
-.set acbs,0x00104000
 # 32 16kB ACBs
+.set acbs,0x00104000
 .set acbs_end,0x00184000			
-.set tcbs,0x00184000
 # 4096 1kB TCBs
+.set tcbs,0x00184000
 .set tcbs_end,0x00584000			
-.set messages,0x00584000
 # 32768 32B MSGs
+.set messages,0x00584000
 .set messages_end,0x00684000	
-.set mailboxes,0x00684000
 # 16384 34B MBXs
+.set mailboxes,0x00684000
 .set mailboxes_end,0x006E4000	
 
 .set sys_stacks,0xFFFB0000
@@ -65,14 +65,28 @@
 .set ACBPtrs,0xFFF8002C
 .set MidStackBottoms,0xFFF800AC
 .set FemtikiInited,0xFFF800B0
+missed_ticks:
+	.type	missed_ticks,@object
+	.size	missed_ticks,4
+OSSEMA:
+	.type	OSSEMA,@object
+	.size	OSSEMA,4
+MSGSEMA:
+	.type	MSGSEMA,@object
+	.size	MSGSEMA,4
+TCBSEMA:
+	.type	TCBSEMA,@object
+	.size	TCBSEMA,4
+MMUSEMA:
+	.type	MMUSEMA,@object
+	.size	MMUSEMA,4
+ACBSEMA:
+	.type	ACBSEMA,@object
+	.size	ACBSEMA,4
+PMTSEMA:
+	.type	PMTSEMA,@object
+	.size	PMTSEMA,4
 #.set missed_ticks,0xFFF800B4
-	.4byte missed_ticks
-	.4byte OSSEMA
-	.4byte MSGSEMA
-	.4byte TCBSEMA
-	.4byte MMUSEMA
-	.4byte ACBSEMA
-	.4byte PMTSEMA 
 .set IOFocusList,0xFFF800B8
 .set IOFocusID,0xFFF800B9
 .set iof_switch,0xFFF800BA

@@ -125,7 +125,9 @@ QueueMsg:
 	loadi %a0,-1
 	bl LockMSGSemaphore
 	beq %cr0,.0001
-	amoadd %r0,1,MBXMQCount[%a2]
+	addi %a2,%a2,MBXMQCount
+	amoadd %r0,1,[%a2]
+	addi %a2,%a2,-MBXMQCount
 	load %a0,MBXMQStrategy[%a2]
 	cmpi %cr0,%a0,MQS_UNLIMITED
 	beq %cr0,.0002
@@ -139,11 +141,15 @@ QueueMsg:
 	load %a0,MBXMQHead[%a2]
 	load %a3,MSGLink[%a0]
 	bl FreeMsg
-	amoadd %r0,-1,MBXMQCount[%a2]
+	addi %a2,%a2,MBXMQCount
+	amoadd %r0,-1,[%a2]
+	addi %a2,%a2,-MBXMQCount
 	store %a3,MBXMQHead[%a2]
 	load. %a0,MBXMQMissed[%a2]
 	pge %cr0,.0007
-	amoadd %r0,1,MBXMQMissed[%a2]
+	addi %a2,%a2,MBXMQMissed
+	amoadd %r0,1,[%a2]
+	addi %a2,%a2,-MBXMQMissed
 .0007:
 	loadi %a4,E_QueFull
 	b .0008
@@ -156,7 +162,9 @@ QueueMsg:
 	ple .0009
 	move %a0,%a1										# free up passed in message
 	bl FreeMsg
-	amoadd %r0,-1,MBXMQCount[%a2]
+	addi %a2,%a2,MBXMQCount
+	amoadd %r0,-1,[%a2]
+	addi %a2,%a2,-MBXMQCount
 	store %a3,MBXMQHead[%a2]
 	load. %a0,MBXMQMissed[%a2]
 .0009:
@@ -177,10 +185,14 @@ QueueMsg:
 	bl FreeMsg										# FreeMsg(tmpmsg)
 	load. %a0,MBXMQMissed[%a2]
 	pge %cr0,.00013
-	amoadd %r0,1,MBXMQMissed[%a2]
+	addi %a2,%a2,MBXMQMissed
+	amoadd %r0,1,[%a2]
+	addi %a2,%a2,-MBXMQMissed
 .00013:
-	amoadd %r0,-1,MBXMQCount[%a2]
-	loadi r4,E_QueFull
+	addi %a2,%a2,MBXMQCount
+	amoadd %r0,-1,[%a2]
+	addi %a2,%a2,-MBXMQCount
+	loadi %a4,E_QueFull
 .00010:
 	cmpi %cr0,%a4,E_QueFull
 	beq %cr0,.00014
@@ -226,7 +238,9 @@ DequeueMsg:
 	loadi %a0,0
 	load. %a2,MBXMQCount[%a1]
 	beq %cr0,.0001
-	amoadd %r0,-1,MBXMQCount[%a1]
+	addi %a1,%a1,MBXMQCount
+	amoadd %r0,-1,[%a1]
+	addi %a1,%a1,-MBXMQCount
 	load. %a0,MBXMQHead[%a1]
 	plt %cr0,.0001
 	load. %a2,MSGLink[%a0]
@@ -272,7 +286,9 @@ DequeTaskFromMbx:
 	pop %br1
 	blr
 .0002:
-	amoadd %r0,-1,MBXTQCount[%a2]
+	addi %a2,%a2,MBXTQCount
+	amoadd %r0,-1,[%a2]
+	addi %a2,%a2,-MBXTQCount
 	load %a3,MBXTQHead[%a2]
 	move %a1,%a3
 	load. %a4,TCBMBQNext[%a3]
@@ -295,7 +311,9 @@ DequeTaskFromMbx:
 	storei -1,TCBMBQNext[%a3]
 	storei -1,TCBMBQPrev[%a3]
 	storei -1,TCBhWaitMbx[%a3]	# no longer waiting at mailbox
-	amoandb %r0,~TS_WAITMSG,TCBStatus[%a3]
+	addi %a3,%a3,TCBStatus
+	amoandb %r0,~TS_WAITMSG,[%a3]
+	addi %a3,%a3,-TCBStatus
 .0005:
 	loadi %a0,E_Ok
 	pop %a2-%a4
@@ -323,7 +341,8 @@ DequeTaskFromMbx:
 
 FMTK_AllocMbx:
 	macAdrCheck %a1
-	push %a2-%a3					# save %a2,%a3
+	push %br1
+	push %a3
 	loadi %a0,-1
 	bl LockMSGSemaphore
 	beq %cr0,.0002
@@ -334,13 +353,14 @@ FMTK_AllocMbx:
 .0003:
 	macUnlockMSGSemaphore
 	loadi %a0,E_NoMoreMbx
-	pop %a2-%a3
+	pop %a3
 	pop %br1
-	blr
+	b EnvExitLight
 .0004:
 	load %a2,MBXLink[%a0]
 	store %a2,freeMBX
-	amoadd %r0,-1,nMailbox
+	loadi %a3,nMailbox
+	amoadd %r0,-1,[%a3]
 	macUnlockMSGSemaphore
 	move %a2,%a0
 	macMBXPointerToHandle
@@ -362,14 +382,14 @@ FMTK_AllocMbx:
 	storei 8,MBXMQSize[%a1]
 	storei MQS_NEWEST,MBXMQStrategy[%a1]
 	loadi %a0,E_Ok
-	pop %a2-%a3
+	pop %a3
 	pop %br1
-	blr
+	b EnvExitLight
 .0002:
 	loadi %a0,E_Busy
-	pop %a2-%a3
+	pop %a3
 	pop %br1
-	blr
+	b EnvExitLight
 
 # ---------------------------------------------------------------
 #	Description:
@@ -417,7 +437,9 @@ FMTK_FreeMbx:
 	move %a1,%a2
 	beq %cr0,.0005
 	storei MT_NONE,TCBMsg+MSGType[%a0]
-	amoand. %r0,TS_TIMEOUT,TCBStatus[%a0]
+	addi %a0,%a0,TCBStatus
+	amoandb. %r0,TS_TIMEOUT,[%a0]
+	addi %a0,%a0,-TCBStatus
 	peq %cr0,.0006
 	bl RemoveFromTimeoutList
 .0006:
@@ -428,7 +450,8 @@ FMTK_FreeMbx:
 	load %a0,freeMBX
 	store %a0,MBXLink[%a1]
 	store %a1,freeMBX
-	amoadd %r0,1,nMailbox
+	loadi %a0,nMailbox
+	amoadd %r0,1,[%a0]
 	macUnlockMSGSemaphore
 	loadi %a0,E_Ok
 	pop %a1-%a2
@@ -533,7 +556,8 @@ FMTK_SendMsg:
 	move %a6,%a0
 	load %a0,MSGLink[%a6]
 	store %a0,freeMSG
-	amoadd %r0,-1,nMsgBlk
+	loadi %a0,nMsgBlk
+	amoadd %r0,-1,[%a0]
 	bl GetAppHandle
 	stb %a0,MSGRetAdr[%a6]
 	store %a5,MSGDestAdr[%a6]
@@ -629,7 +653,8 @@ FMTK_PostMsg:
 	move %a6,%a0
 	load %a0,MSGLink[%a6]
 	store %a0,freeMSG
-	amoadd %r0,-1,nMsgBlk
+	loadi %a0,nMsgBlk
+	amoadd %r0,-1,[%a0]
 	bl GetAppHandle
 	stb %a0,MSGRetAdr[%a6]
 	store %a5,MSGDestAdr[%a6]
@@ -763,7 +788,8 @@ FMTK_WaitMsg:
 .0004:
 	bl GetRunningTCBPtr
 	bl RemoveFromReadyList
-	amoor %r0,TS_WAITMSG,TCBStatus[%a0]
+	addi %t1,%a0,TCBStatus
+	amoorb %r0,TS_WAITMSG,[%t1]
 	stptr %a1,TCBhWaitMbx[%a0]
 	loadi %t1,-1
 	stptr %t0,TCBMBQNext[%a0]
@@ -785,7 +811,8 @@ FMTK_WaitMsg:
 		stptr %a7,TCBMBXPrev[%t0]
 		stptr %t0,TCBMBQNext[%a7]
 		stptr %t0,MBXTQTail[%a1]
-		amoadd %r0,1,MBXTQCount[%a1]
+		addi %t1,%a1,MBXTQCount
+		amoadd %r0,1,[%t1]
 .0011:
 	macUnlockMSGSemaphore
 	cmpi %cr0,%a5,0							# is there a time limit specified?

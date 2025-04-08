@@ -232,9 +232,10 @@
 .set ACBHasFocus,968
 .set ACBmid,970
 .set ACBStatus,972
+.set ACBpFrameBuffer,984
 # 256 * 8 bytes reserved for template pointers
-.set ACBTemplates,984   	
-.set ACBPad,3032
+.set ACBTemplates,992   	
+.set ACBPad,3040
 # start of 1kB string area
 .set ACBStrings,3072
 # 8kB Text screen  		

@@ -48,8 +48,10 @@
 .set MMUxPADRV,0xFFF40060
 
 .set CB_XOR,0x00312345
+.set FPSR,0x0014
 .set SR,0x3004
 .set XS,0x3010
+.set SCRATCH,0x3041
 .set ESR0,0x3080
 .set EPC0,0x3108
 .set FPStateBegin,3
@@ -173,12 +175,14 @@ TCBPointerToHandle:
 
 .macro macTCBSetStatusBit
 	macTCBHandleToPointer
-	amoor %r0,%a1,TCBStatus[%a0]
+	addi %a0,%a0,TCBStatus
+	amoorb %r0,%a1,[%a0]
 .endm
 
 TCBSetStatusBit:
 	macTCBHandleToPointer
-	amoor %r0,%a1,TCBStatus[%a0]
+	addi %a0,%a0,TCBStatus
+	amoorb %r0,%a1,[%a0]
 	blr
 
 #------------------------------------------------------------------------------
@@ -197,14 +201,16 @@ TCBSetStatusBit:
 .macro macTCBClearStatusBit
 	macTCBHandleToPointer
 	xori %a1,%a1,-1
-	amoand %r0,%a1,TCBStatus[%a0]
+	addi %a0,%a0,TCBStatus
+	amoandb %r0,%a1,[%a0]
 	xori %a1,%a1,-1
 .endm
 
 TCBClearStatusBit:
 	macTCBHandleToPointer
 	xori %a1,%a1,-1
-	amoand %r0,%a1,TCBStatus[%a0]
+	addi %a0,%a0,TCBStatus
+	amoandb %r0,%a1,[%a0]
 	xori %a1,%a1,-1
 	blr
 
@@ -225,7 +231,7 @@ TCBClearStatusBit:
 #------------------------------------------------------------------------------
 
 LockSemaphore:
-	cmpi cr0,%a1,0xFFF80000			# if that its a kernel var space address
+	cmpi %cr0,%a1,0xFFF80000		# if that its a kernel var space address
 	blt .0003										# got lock user-land semaphore
 	push %a2
 	load %a2,RunningID
@@ -250,8 +256,8 @@ LockSemaphore:
 	csrrci %a3,M_SR,0x1C0000	# clear MPRV
 	csrrsi %r0,M_SR,0x180000	# select mode from om on stack
   sync
-	amoswap. %r0,%a2,[%a1]		# do the store to the proper address space
-	csrrw %r0,M_SR,%a3				# restore SR settings
+	cmpswap. %r0,%r0,%a2,[%a1]	# do the store to the proper address space
+	csrrw %r0,M_SR,%a3					# restore SR settings
   sync
 	bne	%cr0,.0004
 	pop %a2-%a3
@@ -285,19 +291,21 @@ FMTK_LockSemaphore:
 	macAdrCheck %a2
 .0004:
 	addi. %a1,%a1,-1
-	beq	%cr0,.0005
+	pne	%cr0,.0005
+	loadi %a0,E_Busy
+	b OSExit
+.0005:
 	csrrci %a0,M_SR,0x1C0000	# clear MPRV
 	csrrsi %r0,M_SR,0x180000	# select mode from om on stack
   sync
-	amoswap. %r0,%a3,[%a2]		# do the store to the proper address space
-	csrrw %r0,M_SR,%a0				# restore SR settings
+	cmpswap. %r0,%r0,%a3,[%a2]	# do the store to the proper address space
+	csrrw %r0,M_SR,%a0					# restore SR settings
   sync
-	bne	%cr0,.0004
+	peq	%cr0,.0001
 	loadi %a0,E_Ok
 	b OSExit
-.0005:
-	loadi %a0,E_Busy
-	b OSExit
+.0001:
+	b .0004
 
 #------------------------------------------------------------------------------
 # Unlock a semaphore.
@@ -312,16 +320,20 @@ FMTK_LockSemaphore:
 
 FMTK_UnlockSemaphore:
 	macAdrCheck %a1
+	push %a3
 	csrrci %a0,M_SR,0x1C0000	# clear MPRV
 	csrrsi %r0,M_SR,0x180000	# select mode from om on stack
   sync
-	amoclear. %r0,%a2,[%a1]		# do the store to the proper address space
-	csrrw %r0,M_SR,%a0				# restore SR settings
+	cmpswap. %a3,%a2,%r0,[%a1]	# do the store to the proper address space
+	csrrw %r0,M_SR,%a0					# restore SR settings
   sync
+  cmp %cr0,%a3,%a2
   pne %cr0,.0005
+  pop %a3
 	loadi %a0,E_Ok
 	b OSExit
 .0005:
+  pop %a3
 	loadi %a0,E_NotOwner
 	b OSExit
 
@@ -337,7 +349,7 @@ FMTK_UnlockSemaphore:
 LockSysSemaphore:
 	push %br1						# push br1
 	push %a1
-	loadi %a1,OSSEMA
+	loada %a1,OSSEMA
 	bl LockSemaphore		# this will setup a0 and %cr0
 	pop %a1
 	pop %br1
@@ -355,7 +367,7 @@ LockSysSemaphore:
 LockMMUSemaphore:
 	push %br1						# push br1
 	push %a1
-	loadi %a1,MMUSEMA
+	loada %a1,MMUSEMA
 	bl LockSemaphore
 	pop %a1
 	pop %br1
@@ -373,7 +385,7 @@ LockMMUSemaphore:
 LockACBSemaphore:
 	push %br1						# push br1
 	push %a1
-	loadi %a1,ACBSEMA
+	loada %a1,ACBSEMA
 	bl LockSemaphore
 	pop %a1
 	pop %br1
@@ -391,7 +403,7 @@ LockACBSemaphore:
 LockPMTSemaphore:
 	push %br1						# push br1
 	push %a1
-	loadi %a1,PMTSEMA
+	loada %a1,PMTSEMA
 	bl LockSemaphore
 	pop %a1
 	pop %br1
@@ -409,7 +421,7 @@ LockPMTSemaphore:
 LockMSGSemaphore:
 	push %br1						# push br1
 	push %a1
-	loadi %a1,MSGSEMA
+	loada %a1,MSGSEMA
 	bl LockSemaphore
 	pop %a1
 	pop %br1
@@ -485,7 +497,7 @@ _UnlockMSGSemaphore:
 .endm
 
 #------------------------------------------------------------------------------
-# Operating system call dispatcher.
+# Heavy-weight environment call dispatcher.
 #
 # Process is to stack registers on the stack, call the function, then
 # unstack the registers. Stacking the registers potentially allows some
@@ -502,13 +514,13 @@ _UnlockMSGSemaphore:
 #		a0 = status, E_Ok for success, otherwise an error code
 #------------------------------------------------------------------------------
 
-OSCall:
+EnvCallHeavy:
 	push %cr0					# push cr0
-	cmpai %cr0,%a0,OSCallTableLimit	# check if we have a valid function number
-	bgt %cr0,OSCallBadFunc
+	cmpai %cr0,%a0,NUM_OSFUNC	# check if we have a valid function number
+	bgt %cr0,EnvCallBadFunc
 	pop %cr0
 	csrrw %r0,SCRATCH,%a0
-	push %r1-%r15					# save registers
+	push %r2-%r15					# save registers
 	push %r16-%r31
 	# save status reg, FP status reg
 	csrrd %a0,FPSR
@@ -521,19 +533,19 @@ OSCall:
 	push %a0
 	csrrd %a0,SCRATCH					# get back a0
 	slli %a0,%a0,2						# convert unit index into word index
-	load. %a0,OSCallTable[%a0]	# fetch vector
-	beq %cr0,OSCallBadFunc2		# nullptr?
+	load. %a0,EnvCallHeavyTable[%a0]	# fetch vector
+	beq %cr0,EnvCallHeavyBadFunc2		# nullptr?
 	csrrd %a0,SCRATCH
-	# call the OS function (eg written in C)
+	# call the environment function (eg written in C)
 	# we carefully did not modify any registers, so the arguments in registers
 	# should still be correct.
-	blr %br1
+	blrl %br1
   # Stuff the error response return value into the right stack position so
   # they it is popped into the a0 register for return
 	# fall through to exit
 
 #------------------------------------------------------------------------------
-# Operating system exit point.
+# Heavy-weight environment exit point.
 # Pops all the registers off the stack that were saved by the call.
 #
 # Parameters:
@@ -542,20 +554,115 @@ OSCall:
 #		a0 = error code (must have been stuffed into the stack)
 #------------------------------------------------------------------------------
 
-OSExit:
-  store %a0,428[%sp]					# a0 should be here
-	pop %a0
-	move %xh,%a0
+EnvExitHeavy:
+	pop %a1
+	move %xh,%a1
 	pop %cr0-%lc					# get CRs,BRs and LC
 	pop %usp/%ssp/%hsp		# get SPs
 	# restore status reg and FP status reg
-	pop %a0
-	csrrw %r0,SR,%a0
-	pop %a0
-	csrrw %r0,FPSR,%a0
+	pop %a1
+	csrrw %r0,SR,%a1
+	pop %a1
+	csrrw %r0,FPSR,%a1
 	# restore GPRs
 	pop %r16-%r31
-	pop %r1-%r15
+	pop %r2-%r15
+	rfi
+
+#------------------------------------------------------------------------------
+# Medium-weight environment call dispatcher.
+#
+# Process is to stack registers on the stack, call the function, then
+# unstack the registers. Stacking the registers potentially allows some
+# functions to be reentrant. It is also faster than context switching to the
+# OS. The OS function is running in the context of the caller, except that
+# it is running in a higher operating mode which means addresses are 
+# untranslated. To get at storage in the current context the mprv flag in 
+# the status register is used.
+#
+# Parameters:
+#		a0 = operating system call number
+#		a1 to %a6 = arguments for the system call (use depends on called function)
+# Returns:
+#		a0 = status, E_Ok for success, otherwise an error code
+#------------------------------------------------------------------------------
+
+EnvCallMedium:
+	push %cr0					# push cr0
+	cmpai %cr0,%a0,EnvCallMediumTableLimit	# check if we have a valid function number
+	bgt %cr0,EnvCallBadFunc
+	pop %cr0
+	csrrw %r0,SCRATCH,%a0
+	push %a1-%a7					# save registers
+	# save status reg
+	csrrd %a0,SR
+	push %a0
+	push %cr0-%cr4/%br1-%br6/%lc	# save CRs,BRs and LC
+	csrrd %a0,SCRATCH					# get back a0
+	slli %a0,%a0,2						# convert unit index into word index
+	load. %a0,EnvCallMediumTable[%a0]	# fetch vector
+	beq %cr0,EnvCallMediumBadFunc2		# nullptr?
+	csrrd %a0,SCRATCH
+	# call the environment function (eg written in assembler)
+	# we carefully did not modify any registers, so the arguments in registers
+	# should still be correct.
+	blr %br1
+  # Stuff the error response return value into the right stack position so
+  # they it is popped into the a0 register for return
+	# fall through to exit
+
+#------------------------------------------------------------------------------
+# Medium-weight environment exit point.
+# Pops all the registers off the stack that were saved by the call.
+#
+# Parameters:
+#		none
+# Returns:
+#		a0 = error code (must have been stuffed into the stack)
+#------------------------------------------------------------------------------
+
+EnvExitMedium:
+	pop %cr0-%cr4/%br1-%br6/%lc	# restore CRs,BRs and LC
+	# restore status reg and FP status reg
+	pop %a0
+	csrrw %r0,SR,%a0
+	# restore GPRs
+	pop %a1-%a7						# restore registers
+	rfi
+
+#------------------------------------------------------------------------------
+# Lightweight environment call entry point
+# Same as EnvCallHeavy, but only saves nine registers.
+#------------------------------------------------------------------------------
+	
+EnvCallLight:
+	push %cr0					# push cr0
+	cmpai %cr0,%a0,NUM_LWENVFUNC	# check if we have a valid function number
+	bgt %cr0,EnvCallLightBadFunc
+	pop %cr0
+	push %a1-%a3							# save a1 to a3 registers
+	push %cr0-%cr1/%br1-%br3/%lc		# save CRs,BRs and LC
+	slli %a0,%a0,2						# convert unit index into word index
+	load. %a0,EnvCallLightTable[%a0]	# fetch vector
+	beq %cr0,EnvCallLightBadFunc2		# nullptr?
+	# jump to the OS function
+	# we carefully modified only a0, so the arguments in registers
+	# should still be correct.
+	blr %br1
+
+#------------------------------------------------------------------------------
+# Light-weight environment exit point.
+# Pops all the registers off the stack that were saved by the call.
+#
+# Parameters:
+#		none
+# Returns:
+#		a0 = error code (must have been stuffed into the stack)
+#------------------------------------------------------------------------------
+
+EnvExitLight:
+	pop %cr0-%cr1/%br1-%br3/%lc		# save CRs,BRs and LC
+	pop %a1-%a3
 	rfi
 	
 #------------------------------------------------------------------------------
@@ -564,7 +671,7 @@ OSExit:
 # yet.
 #------------------------------------------------------------------------------
 
-OSCallBadFunc:
+EnvCallBadFunc:
 	pop %cr0
   loadi	%a0,E_Func
   blr
@@ -576,9 +683,17 @@ OSCallBadFunc:
 # the a0 register for return.
 #------------------------------------------------------------------------------
 
-OSCallBadFunc2:
+EnvCallHeavyBadFunc2:
   loadi	%a0,E_Func
-	b OSExit
+	b EnvExitHeavy
+
+EnvCallMediumBadFunc2:
+  loadi	%a0,E_Func
+	b EnvExitMedium
+
+EnvCallLightBadFunc2:
+  loadi	%a0,E_Func
+	b EnvExitLight
 
 #------------------------------------------------------------------------------
 # Some useful OS return points.
@@ -586,7 +701,7 @@ OSCallBadFunc2:
 
 # Exit OS and return an OKAY status
 FMTK_RetOK:
-	loadi %a0,E_OK
+	loadi %a0,E_Ok
 	b	OSExit
 
 #------------------------------------------------------------------------------
@@ -607,15 +722,15 @@ GetAppMid:
 #  .4byte    ISendMsg
 #  .4byte    ISleep
 
-OSCallTable:
+EnvCallHeavyTable:
 	.4byte	FMTK_Initialize					# 0
 	.4byte	FMTK_StartTask					# 1
 	.4byte	FMTK_ExitTask
 	.4byte	FMTK_KillTask
 #	.4byte		FMTK_SetTaskPriority
 	.4byte  OSCallBadFunc
-	.4byte	FMTK_Sleep							# 5
-	.4byte	FMTK_AllocMbx
+	.4byte	OSCallBadFunc						# 5
+	.4byte	OSCallBadFunc
 	.4byte		FMTK_FreeMbx
 	.4byte		FMTK_PostMsg
 	.4byte    OSCallBadFunc
@@ -626,15 +741,15 @@ OSCallTable:
 #	.4byte		FMTK_ExitApp            # 13
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
-	.4byte		FMTK_GetCurrentTid
+	.4byte		OSCallBadFunc
 #	.4byte		FMTK_TCBFinalizerExit   # 15
 #	.4byte		FMTK_KillApp
 #	.4byte		FMTK_RunAsOS            # 17
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
-	.4byte		FMTK_GetTaskAppId       # 18
-	.4byte		FMTK_SetTaskId          # 19
+	.4byte		OSCallBadFunc      			# 18
+	.4byte		OSCallBadFunc          	# 19
 #	.4byte		FMTK_HasIOFocus					# 20
 #	.4byte		FMTK_SwitchIOFocus			# 21
 #	.4byte		FMTK_ReleaseIOFocus			# 22
@@ -653,8 +768,8 @@ OSCallTable:
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
-	.4byte    FMTK_GetAppTaskId       # 29
-	.4byte    FMTK_SetTaskAppId       # 30
+	.4byte    OSCallBadFunc      			 # 29
+	.4byte    OSCallBadFunc		      	 # 30
 	.4byte    OSCallBadFunc
 #	.4byte    GetPamBit               # 32
 	.4byte    OSCallBadFunc
@@ -662,8 +777,8 @@ OSCallTable:
 	.4byte    OSCallBadFunc
 #	.4byte    Monitor                 # 34
 	.4byte    OSCallBadFunc
-	.4byte    GetIRQFlag              # 35
-	.4byte    SetIRQFlag              # 36
+	.4byte    OSCallBadFunc           # 35
+	.4byte    OSCallBadFunc           # 36
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
 	.4byte    OSCallBadFunc
@@ -674,14 +789,35 @@ OSCallTable:
 	.4byte    FemtikiTimerISR         # 44
 #	.4byte    FMTK_Reschedule         # 45
 	.4byte    OSCallBadFunc
-	.4byte    FMTK_GetCurrentMid      # 46
-	.4byte    FMTK_GetRunningTCBPointer	# 47
+	.4byte    OSCallBadFunc      			# 46
+	.4byte    OSCallBadFunc						# 47
 	.4byte		OSCallBadFunc							 # 48
 	.4byte		DumpTCBs								# 49
-	.4byte		FMTK_LockSemaphore			# 50
-	.4byte		FMTK_UnlockSemaphore		# 51
+	.4byte		OSCallBadFunc						# 50
+	.4byte		OSCallBadFunc						# 51
 
 .set NUM_OSFUNC,52	#($-OSCallTbl) / 2
+
+EnvCallMediumTable:
+.set NUM_MWENVFUNC,0
+
+EnvCallLightTable:
+	.4byte		FMTK_LockSemaphore			# 0
+	.4byte		FMTK_UnlockSemaphore		# 1
+	.4byte    FMTK_GetAppTaskId       # 2
+	.4byte		FMTK_GetTaskAppId       # 3
+	.4byte    FMTK_SetTaskAppId       # 4
+	.4byte    GetIRQFlag              # 5
+	.4byte    SetIRQFlag              # 6
+	.4byte		FMTK_GetCurrentTid			# 7
+	.4byte    FMTK_GetCurrentMid      # 8
+	.4byte    FMTK_GetRunningTCBPointer	# 9
+	.4byte		FMTK_SetTaskId          # 10
+	.4byte	FMTK_Sleep								# 11
+	.4byte	FMTK_FreeTCB							# 12
+	.4byte	FMTK_AllocMbx							# 13
+
+.set NUM_LWENVFUNC,14
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
@@ -721,7 +857,7 @@ FMTK_GetCurrentTid:
 	macTCBPointerToHandle
 	macStorePM
 	loadi %a0,E_Ok
-	b OSExit
+	b EnvExitLight
 
 #------------------------------------------------------------------------------
 # (not used - use mprv bit instead)
@@ -769,7 +905,7 @@ GetIRQFlag:
   ldbz %a0,IRQFlag		# get the flag
   macStorePM
 	loadi %a0,E_Ok
-	b OSExit
+	b EnvExitLight
 
 #------------------------------------------------------------------------------
 # Set the IRQ flag which a CPU local global variable.
@@ -783,7 +919,7 @@ GetIRQFlag:
 SetIRQFlag:
   stb %a1,IRQFlag
   loadi %a0,E_Ok
-  b OSExit
+  b EnvExitLight
 
 #------------------------------------------------------------------------------
 # Accessors
@@ -806,14 +942,15 @@ FMTK_GetTaskAppId:
   beq %cr0,.0001
   macAdrCheck %a2
 	load %a0,RunningID
+	macTCBHandleToPointer
 	load %a0,TCBappid[%a0]
 	macACBPointerToHandle
 	macStorePM
 	loadi %a0,E_Ok
-	b OSExit
+	b EnvExitLight
 .0001:
 	loadi %a0,E_Arg
-	b OSExit
+	b EnvExitLight
 
 #------------------------------------------------------------------------------
 # Set the owning app id for the task.
@@ -836,10 +973,10 @@ FMTK_SetTaskAppId:
 	macACBHandleToPointer
 	stptr %a0,TCBappid[%a1]
 	loadi %a0,E_Ok
-	b OSExit
+	b EnvExitLight
 .0001:
 	loadi %a0,E_Arg
-	b OSExit
+	b EnvExitLight
 
 #------------------------------------------------------------------------------
 # Get the task associated with the app.
@@ -857,14 +994,14 @@ FMTK_GetAppTaskId:
 	macACBHandleToPointer
 	load %a0,ACBTask[%a0]
 	macTCBPointerToHandle
-	load %a0,TCBappid[a0]
+	load %a0,TCBappid[%a0]
 	move %a1,%a2
 	macStorePM
 	loadi %a0,E_Ok
-	b OSExit
+	b EnvExitLight
 .0001:
 	loadi %a0,E_Arg
-	b OSExit
+	b EnvExitLight
 
 #------------------------------------------------------------------------------
 # Set the task associated with the app.
@@ -876,24 +1013,24 @@ FMTK_GetAppTaskId:
 FMTK_SetTaskId:
   # Should get the id and see if it s currently zero (unset).
   # but this would be more code bloat.
-  macTCBHandleToPointer
   stptr %a1,RunningID
   loadi %a0,E_Ok
-  b OSExit
+	b EnvExitLight
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
 
 FMTK_GetCurrentMid:
 	load %a0,RunningID
+	macTCBHandleToPointer
 	load %a0,TCBappid[%a0]
 	ldbz %a0,ACBmid[%a0]
 	macStorePM
 	loadi %a0,E_Ok
-	b OSExit
+	b EnvExitLight
 .0001:
 	loadi %a0,E_Arg
-	b OSExit
+	b EnvExitLight
 
 #------------------------------------------------------------------------------
 # Parameters:
@@ -911,10 +1048,10 @@ FMTK_GetMid:
 	ldbz %a0,ACBmid[%a0]
 	macStorePM
 	loadi %a0,E_Ok
-	b OSExit
+	b EnvExitLight
 .0001:
 	loadi %a0,E_Arg
-	b OSExit
+	b EnvExitLight
 	
 #------------------------------------------------------------------------------
 # Get a pointer to the TCB for the currently running task.
@@ -935,6 +1072,13 @@ GetRunningTCBPointer:
 	macTCBHandleToPointer
 	blr
 	
+GetRunningACBPointer:
+	load %a0,RunningID
+	macTCBHandleToPointer
+	load %a0,TCBappid[%a0]
+	macACBHandleToPointer
+	blr
+
 #------------------------------------------------------------------------------
 # ToDo: Should check that app is capable of using TCB pointers
 #
@@ -947,7 +1091,7 @@ FMTK_GetRunningTCBPointer:
 	macGetRunningTCBPointer
 	macStorePtrPM
 	loadi %a0,E_Ok
-	b OSExit
+	b EnvExitLight
 
 #------------------------------------------------------------------------------
 # Decrement the timeout. Only the timeout at the head of the list need be
@@ -998,18 +1142,23 @@ SchedulerIRQHelper:
 	cmpi %cr0,%a0,0
 	beq %cr0,.0003
 	load %a0,RunningID
+	macTCBHandleToPointer
 	# Compute %a5 = number of ticks running
 	load %a1,TCBEndTick[%a0]
 	load %a2,TCBStartTick[%a0]
 	sub %a5,%a1,%a2
-	amoadd %r0,%a5,TCBTicks[%a0]	# calc total cumulative ticks running
+	addi %a0,%a0,TCBTicks
+	amoadd %r0,%a5,[%a0]	# calc total cumulative ticks running
+	addi %a0,%a0,-TCBTicks
 
 	# Check the task priority, special priority 63
 	ldbz %a1,TCBPriorty[%a0]
 	cmpai %cr0,%a1,63						# highest priority: refuse to task switch or even
 	bge %cr0,.0003							# decrement timeout
 	loadi %a1,TS_PREEMPT
-	amoorb %r0,%a1,TCBStatus[%a0]
+	addi %a0,%a0,TCBStatus
+	amoorb %r0,%a1,[%a0]
+	addi %a0,%a0,-TCBStatus
 	bl DecrementTimeout
 	ldbz %a1,TCBPriority[%a0]		# very high priority > 59, don't switch
 	cmpai %cr0,%a1,60
@@ -1017,15 +1166,17 @@ SchedulerIRQHelper:
 	cmpai %cr0,%a5,3							# allow the task to run for 3 ticks
 	plt %cr0,.0002
 	bl SelectTaskToRun
-	stptr %a0,RunningID
+	store %a0,RunningID
+	macTCBHandleToPointer
 .0002:
 	loadi %a1,TS_RUNNING
-	amoorb %r0,%a1,TCBStatus[%a0]
+	addi %a0,%a0,TCBStatus
+	amoorb %r0,%a1,[%a0]
 	move %br1,%br3
 	blr
 .0003:
-	loadi %a0,1
-	amoadd %r0,%a0,missed_ticks
+	loadi %a0,missed_ticks
+	amoadd %r0,1,[%a0]
 	move %br1,%br3
 	blr
 
@@ -1053,16 +1204,18 @@ FemtikiTimerISR:
 	push %cr0
 	push %br1-%br6							# push %br1 to %br6
 	load %a0,RunningID
+	macTCBHandleToPointer
 	csrrsi %a1,M_SEMA,InTimerISRFlag	# get InTimerISR flag
 	andi. %a1,%a1,InTimerISRFlag
 	bne %cr0,.0004
-	stptr %a0,PrevRunningID			# Keep track of previous Running TCB
+	stptr %a0,PrevRunningPointer			# Keep track of previous Running TCB
 	move %a4,%a0									
 	move %a1,%a0
 	macIGetTick
 	store %a0,TCBEndTick[%a1]
 	bl SchedulerIRQHelper
 	load %a0,RunningID						# scheduling may have changed this value
+	macTCBHandleToPointer
 	move %a5,%a0									# save a copy of the id
 	xor %a4,%a0,%a4								# %a4 = flag if running changed
 	ldbz. %a1,TCBException[%a0]
@@ -1110,7 +1263,7 @@ FemtikiTimerISR:
 
 #------------------------------------------------------------------------------
 # Context switch code	
-# Switches from PrevRunningID to RunningID
+# Switches from PrevRunningPointer to RunningID
 #
 # One issue with the context switching code and the current system is that
 # the queue in the memory controller can overflow if there are a lot of
@@ -1122,7 +1275,7 @@ FemtikiTimerISR:
 SwitchTask:
 	csrrw %r0,SCRATCH,%a0		# save a0 in scratch register
 	push %br1
-	load %a0,PrevRunningID
+	load %a0,PrevRunningPointer
 	# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	# Store the destination context
 	# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1133,17 +1286,17 @@ SwitchTask:
 	# save condition registers
 	move %a1,%cr0
 	store %a1,TCBxCR0[%a0]
-	move %a1,cr1
+	move %a1,%cr1
 	store %a1,TCBxCR1[%a0]
-	move %a1,cr2
+	move %a1,%cr2
 	store %a1,TCBxCR2[%a0]
-	move %a1,cr3
+	move %a1,%cr3
 	store %a1,TCBxCR3[%a0]
-	move %a1,cr4
+	move %a1,%cr4
 	store %a1,TCBxCR4[%a0]
-	move %a1,cr5
+	move %a1,%cr5
 	store %a1,TCBxCR5[%a0]
-	move %a1,cr6
+	move %a1,%cr6
 	store %a1,TCBxCR6[%a0]
 	move %a1,%cr7
 	store %a1,TCBxCR7[%a0]
@@ -1164,7 +1317,7 @@ SwitchTask:
 	move %a1,%lc
 	store %a1,TCBxLC[%a0]
 	# exception handler address
-	move %a1,xh
+	move %a1,%xh
 	store %a1,TCBxXH[%a0]
 	# save GPRs
 	store %a2,TCBxA2[%a0]
@@ -1259,17 +1412,17 @@ SwitchTask:
 	load %a1,TCBxCR0[%a0]
 	move %cr0,%a1
 	load %a1,TCBxCR1[%a0]
-	move cr1,%a1
+	move %cr1,%a1
 	load %a1,TCBxCR2[%a0]
-	move cr2,%a1
+	move %cr2,%a1
 	load %a1,TCBxCR3[%a0]
-	move cr3,%a1
+	move %cr3,%a1
 	load %a1,TCBxCR4[%a0]
-	move cr4,%a1
+	move %cr4,%a1
 	load %a1,TCBxCR5[%a0]
-	move cr5,%a1
+	move %cr5,%a1
 	load %a1,TCBxCR6[%a0]
-	move cr6,%a1
+	move %cr6,%a1
 	load %a1,TCBxCR7[%a0]
 	move %cr7,%a1
 	# load branch registers
@@ -1406,11 +1559,11 @@ FMTK_Sleep:
   macStorePM
 .0002:
   loadi %a0,E_Ok
-  b OSExit
+	b EnvExitLight
 .0003:
 	bli FemtikiTimerISR			# Force Timer IRQ processing
   loadi %a0,E_Ok
-  b OSExit
+	b EnvExitLight
 
 # ----------------------------------------------------------------------------
 # Select a task to run. Relatively easy as task selection is handled by
@@ -1448,7 +1601,9 @@ SelectTaskToRun:
 	move %a3,%a1				# save this
 	# Check for commands, if successful clear the command otherwise it will be
 	# done more than once.
-	amoswapb. %a1,%r0,TCBTsCmd[%a0]	# clear command
+	addi %a0,%a0,TCBTsCmd
+	amoswapb. %a1,%r0,[%a0]	# clear command
+	addi %a0,%a0,-TCBTsCmd
 	beq %cr0,.0007
 	cmpi %cr0,%a1,TSC_FREETCB	# was the TCB "freed"	
 	pne %cr0,.0005						# should use a predicate here
@@ -1473,6 +1628,7 @@ SelectTaskToRun:
 	move %a2,%a0
 	load %a1,TCBTsCmdParm[%a0]		# %a1 = timeout
 	load %a0,RunningID						# a0 = running TID
+	macTCBHandleToPointer
 	bl RemoveFromReadyQueue
 	bl InsertIntoTimeoutList
 	move %a1,%a2
@@ -1544,6 +1700,7 @@ SelectTaskToRun:
 #------------------------------------------------------------------------------
 
 FMTK_StartTask:
+	push %br1
 	load %t0,RunningID
 	macGetRunningTCBPointer
 	move %a7,%a0
@@ -1570,7 +1727,7 @@ FMTK_StartTask:
 	macUnlockACBSemaphore
 	store %a4,TCBxA0[%a7]				# place start parameter in a0 register
 	loadi %a0,MF_IncreaseStackSize
-	sys
+	ecall MF
 	cmpi %cr0,%a0,0
 	beq %cr0,.0003
 	addi %a0,%a0,PGSZ
@@ -1588,14 +1745,17 @@ FMTK_StartTask:
 	csrrw %r0,M_SR,%a0				# restore SR settings
   sync
 .0004:
+	pop %br1
 	loadi %a0,E_Ok
-	b OSExit
+	blr
 .0002:
+	pop %br1
 	loadi %a0,E_NoMoreTCBs	
-	b OSExit
+	blr
 .0003:
+	pop %br1
 	loadi %a0,E_NoMem
-	b OSExit
+	blr
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
@@ -1735,9 +1895,11 @@ FMTK_Init:
 	loadi %a0,1
 	store %a0,OSActive
 	loadi %a0,acbs
-	stptr %a0,RunningAID
+	macACBPointerToHandle
+	store %a0,RunningAID
 	loadi %a0,tcbs
-	stptr %a0,RunningID		# reset this
+	macTCBPointerToHandle
+	store %a0,RunningID		# reset this
 
 	# Set stack bottoms for all the memory maps
 	loadi %a1,0
