@@ -43,6 +43,7 @@
 .set IRQFlag,0xFFFC0012
 .set InTimerISRFlag,1
 
+.set TimerIRQTrigger,0x8008004F
 .set MMUxVIRTADR,0xFFF40040
 .set MMUxPHYSADR,0xFFF40050
 .set MMUxPADRV,0xFFF40060
@@ -50,6 +51,7 @@
 .set CB_XOR,0x00312345
 .set FPSR,0x0014
 .set SR,0x3004
+.set TCBA,0x3005
 .set XS,0x3010
 .set SCRATCH,0x3041
 .set ESR0,0x3080
@@ -58,6 +60,14 @@
 .set FPStateEnd,4
 
 	.text
+
+#------------------------------------------------------------------------------
+# Reschdule tasks
+#------------------------------------------------------------------------------
+
+.macro macReschedule
+	blri FemtikiTimerISR[%pc],0x30	# Force Timer IRQ processing
+.endm
 
 #------------------------------------------------------------------------------
 # Perform an address range check on an argument. Note we use only 1 branch
@@ -118,7 +128,7 @@ TCBHandleToPointer:
 	subi %a0,%a0,1
 	slli %a0,%a0,LOG_TCBSZ
 	addi %a0,%a0,tcbs
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Convert an ACB handle into a pointer to the corresponding ACB.
@@ -134,7 +144,7 @@ ACBHandleToPointer:
 	subi %a0,%a0,1
 	slli %a0,%a0,LOG_ACBSZ
 	addi %a0,%a0,acbs
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Convert a TCB pointer into a handle for the TCB.
@@ -149,7 +159,7 @@ TCBPointerToHandle:
 	subi %a0,%a0,tcbs
 	srli %a0,%a0,LOG_TCBSZ
 	addi %a0,%a0,1
-	blr
+	ret
 
 .macro macACBPointerToHandle
 	srli %a0,%a0,LOG_ACBSZ
@@ -183,7 +193,7 @@ TCBSetStatusBit:
 	macTCBHandleToPointer
 	addi %a0,%a0,TCBStatus
 	amoorb %r0,%a1,[%a0]
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Clear the TCB status in an atomic fasion.
@@ -212,7 +222,7 @@ TCBClearStatusBit:
 	addi %a0,%a0,TCBStatus
 	amoandb %r0,%a1,[%a0]
 	xori %a1,%a1,-1
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Lock a semaphore.
@@ -242,11 +252,11 @@ LockSemaphore:
 	bne	%cr0,.0002
 	pop %a2
 	loadi. %a0,1
-	blr
+	ret
 .0001:
 	pop %a2
 	loadi. %a0,0		# set %cr0
-	blr
+	ret
 .0003:
 	push %a2-%a3
 	load %a2,RunningID
@@ -262,11 +272,11 @@ LockSemaphore:
 	bne	%cr0,.0004
 	pop %a2-%a3
 	loadi. %a0,1
-	blr
+	ret
 .0005:
 	pop %a2-%a3
 	loadi. %a0,0
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Lock a semaphore.
@@ -353,7 +363,7 @@ LockSysSemaphore:
 	bl LockSemaphore		# this will setup a0 and %cr0
 	pop %a1
 	pop %br1
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Lock the MMU semaphore.
@@ -371,7 +381,7 @@ LockMMUSemaphore:
 	bl LockSemaphore
 	pop %a1
 	pop %br1
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Lock the ACB semaphore.
@@ -389,7 +399,7 @@ LockACBSemaphore:
 	bl LockSemaphore
 	pop %a1
 	pop %br1
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Lock the PMT semaphore.
@@ -407,7 +417,7 @@ LockPMTSemaphore:
 	bl LockSemaphore
 	pop %a1
 	pop %br1
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Lock the PMT semaphore.
@@ -425,7 +435,7 @@ LockMSGSemaphore:
 	bl LockSemaphore
 	pop %a1
 	pop %br1
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # macUnlock system semaphore.
@@ -460,23 +470,23 @@ LockMSGSemaphore:
 
 _UnlockSysSemaphore:
 	store %r0,OSSEMA
-	blr
+	ret
 
 _UnlockMMUSemaphore:
 	store %r0,MMUSEMA
-	blr
+	ret
 
 _UnlockACBSemaphore:
 	store %r0,ACBSEMA
-	blr
+	ret
 
 _UnlockPMTSemaphore:
 	store %r0,PMTSEMA
-	blr
+	ret
 
 _UnlockMSGSemaphore:
 	store %r0,MSGSEMA
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Get the system tick (milliseconds).
@@ -515,10 +525,8 @@ _UnlockMSGSemaphore:
 #------------------------------------------------------------------------------
 
 EnvCallHeavy:
-	push %cr0					# push cr0
 	cmpai %cr0,%a0,NUM_OSFUNC	# check if we have a valid function number
 	bgt %cr0,EnvCallBadFunc
-	pop %cr0
 	csrrw %r0,SCRATCH,%a0
 	push %r2-%r15					# save registers
 	push %r16-%r31
@@ -535,6 +543,7 @@ EnvCallHeavy:
 	slli %a0,%a0,2						# convert unit index into word index
 	load. %a0,EnvCallHeavyTable[%a0]	# fetch vector
 	beq %cr0,EnvCallHeavyBadFunc2		# nullptr?
+	move %br1,%a0
 	csrrd %a0,SCRATCH
 	# call the environment function (eg written in C)
 	# we carefully did not modify any registers, so the arguments in registers
@@ -588,10 +597,8 @@ EnvExitHeavy:
 #------------------------------------------------------------------------------
 
 EnvCallMedium:
-	push %cr0					# push cr0
 	cmpai %cr0,%a0,EnvCallMediumTableLimit	# check if we have a valid function number
 	bgt %cr0,EnvCallBadFunc
-	pop %cr0
 	csrrw %r0,SCRATCH,%a0
 	push %a1-%a7					# save registers
 	# save status reg
@@ -602,11 +609,12 @@ EnvCallMedium:
 	slli %a0,%a0,2						# convert unit index into word index
 	load. %a0,EnvCallMediumTable[%a0]	# fetch vector
 	beq %cr0,EnvCallMediumBadFunc2		# nullptr?
+	move %br1,%a0
 	csrrd %a0,SCRATCH
 	# call the environment function (eg written in assembler)
 	# we carefully did not modify any registers, so the arguments in registers
 	# should still be correct.
-	blr %br1
+	ret
   # Stuff the error response return value into the right stack position so
   # they it is popped into the a0 register for return
 	# fall through to exit
@@ -622,7 +630,7 @@ EnvCallMedium:
 #------------------------------------------------------------------------------
 
 EnvExitMedium:
-	pop %cr0-%cr4/%br1-%br6/%lc	# restore CRs,BRs and LC
+	pop %br1-%br6/%lc			# restore BRs and LC
 	# restore status reg and FP status reg
 	pop %a0
 	csrrw %r0,SR,%a0
@@ -636,19 +644,18 @@ EnvExitMedium:
 #------------------------------------------------------------------------------
 	
 EnvCallLight:
-	push %cr0					# push cr0
 	cmpai %cr0,%a0,NUM_LWENVFUNC	# check if we have a valid function number
 	bgt %cr0,EnvCallLightBadFunc
-	pop %cr0
 	push %a1-%a3							# save a1 to a3 registers
-	push %cr0-%cr1/%br1-%br3/%lc		# save CRs,BRs and LC
+	push %br1-%br3/%lc				# save BRs and LC
 	slli %a0,%a0,2						# convert unit index into word index
 	load. %a0,EnvCallLightTable[%a0]	# fetch vector
 	beq %cr0,EnvCallLightBadFunc2		# nullptr?
+	move %br1,%a0
 	# jump to the OS function
 	# we carefully modified only a0, so the arguments in registers
 	# should still be correct.
-	blr %br1
+	ret
 
 #------------------------------------------------------------------------------
 # Light-weight environment exit point.
@@ -661,7 +668,7 @@ EnvCallLight:
 #------------------------------------------------------------------------------
 
 EnvExitLight:
-	pop %cr0-%cr1/%br1-%br3/%lc		# save CRs,BRs and LC
+	pop %br1-%br3/%lc		# save BRs and LC
 	pop %a1-%a3
 	rfi
 	
@@ -672,9 +679,8 @@ EnvExitLight:
 #------------------------------------------------------------------------------
 
 EnvCallBadFunc:
-	pop %cr0
   loadi	%a0,E_Func
-  blr
+  ret
 
 #------------------------------------------------------------------------------
 # Here the OS function was not implemented yet (null pointer in dispatch
@@ -714,7 +720,7 @@ FMTK_RetOK:
 GetAppMid:
 	macACBHandleToPointer
 	load %a0,ACBMid[%a0]
-	blr
+	ret
 
 #OSCallTbl2:
 #  .4byte    SchedulerIRQ
@@ -839,7 +845,7 @@ FMTK_Initialize:
 
 GetCurrentTid:
 	load %a0,RunningID
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Get the task id for the currently running task.
@@ -888,7 +894,7 @@ ConvertVirtualToPhysical:
 	macUnlockMMUSemaphore
 	pop %a1/%a2
 	pop %br1
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Get the IRQ flag which a CPU local global variable.
@@ -1070,14 +1076,14 @@ FMTK_GetMid:
 GetRunningTCBPointer:
 	load %a0,RunningID
 	macTCBHandleToPointer
-	blr
+	ret
 	
 GetRunningACBPointer:
 	load %a0,RunningID
 	macTCBHandleToPointer
 	load %a0,TCBappid[%a0]
 	macACBHandleToPointer
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # ToDo: Should check that app is capable of using TCB pointers
@@ -1117,7 +1123,7 @@ FMTK_GetRunningTCBPointer:
 DecrementTimeout:
 .0003:
 	load.	%a0,TimeoutList				# a0 = pointer to timeout list
-	beq %cr0,.0001
+	beq %cr0,%br1								# conditional return if zero
 	load. %a1,TCBTimeout[%a0]
 	pgt %cr0,.0002
 	bl PopTimeoutList
@@ -1126,11 +1132,13 @@ DecrementTimeout:
 .0002:
 	subi %a1,%a1,1
 	neg %a1,%a1									# we really wanted amosub here
-	amoadd %r0,%a1,missed_ticks
+	push %a2
+	loada %a2,missed_ticks
+	amoadd %r0,%a1,[%a2]
+	pop %a2
 	neg %a1,%a1
 	store %a1,TCBTimeout[%a0]
-.0001:
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Helper routine for the timer ISR. Makes the code a little easier to read.
@@ -1173,12 +1181,12 @@ SchedulerIRQHelper:
 	addi %a0,%a0,TCBStatus
 	amoorb %r0,%a1,[%a0]
 	move %br1,%br3
-	blr
+	ret
 .0003:
 	loadi %a0,missed_ticks
 	amoadd %r0,1,[%a0]
 	move %br1,%br3
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Femtiki Timer ISR
@@ -1246,7 +1254,8 @@ FemtikiTimerISR:
 	# Return, but do not flag as ISR complete. We are returning to the ISR.
 .0004:
 	loadi %a0,1
-	amoadd %r0,%a0,missed_ticks
+	loada %a1,missed_ticks
+	amoadd %r0,%a0,[%a1]
 	pop %br1-%br6							# get back %br1 to %br6
 	pop %cr0
 	pop %a0-%a6								# get back a0 to %a6
@@ -1551,7 +1560,7 @@ FMTK_Sleep:
   store %a1,TCBTsCmdParm[%a0]	# setup sleep command request
   loadi %a3,TSC_SLEEP
   stb %a3,TCBTsCmd[%a0]
-	bli FemtikiTimerISR				# Force Timer IRQ processing
+	macReschedule
   cmpi %cr0,%a2,0						# we allow null here, maybe no return value needed
   beq %cr0,.0002
   load %a0,TCBTsResp[%a0]		# response should have been updated by timer IRQ
@@ -1561,7 +1570,7 @@ FMTK_Sleep:
   loadi %a0,E_Ok
 	b EnvExitLight
 .0003:
-	bli FemtikiTimerISR			# Force Timer IRQ processing
+	macReschedule
   loadi %a0,E_Ok
 	b EnvExitLight
 
@@ -1644,14 +1653,14 @@ SelectTaskToRun:
 	bl InsertIntoReadyQueue
 	pop %a1-%a3
 	pop %br1
-	blr
+	ret
 	# Nothing in queues? There is supposed to be. Add the OS task to the queue.
 .0002:
 	loadi %a0,1
 	bl InsertIntoReadyQueue
 	pop %a1-%a3
 	pop %br1
-	blr
+	ret
 
 #// ----------------------------------------------------------------------------
 #// Sleep for a number of clock ticks.
@@ -1705,7 +1714,7 @@ FMTK_StartTask:
 	macGetRunningTCBPointer
 	move %a7,%a0
 	stbi TSC_ALLOCTCB,TCBTsCmd[%a7]	# request a TCB from the scheduler
-	bli FemtikiTimerISR
+	macReschedule
 	load. %a0,TCBTsResp[%a7]
 	store %r0,TCBTsResp[%a7]
 	move %t1,%a0								# %t1 = handle for new task
@@ -1747,15 +1756,15 @@ FMTK_StartTask:
 .0004:
 	pop %br1
 	loadi %a0,E_Ok
-	blr
+	ret
 .0002:
 	pop %br1
 	loadi %a0,E_NoMoreTCBs	
-	blr
+	ret
 .0003:
 	pop %br1
 	loadi %a0,E_NoMem
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
@@ -1838,7 +1847,7 @@ InitFreeMessageList:
 	blt %cr0,.0003
 	subi %a1,%a1,MSG_SIZE		# backup
 	stptr %r0,MSG_LINK[%a1]	# update last link to null
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Link each mailbox to the next in the free list.
@@ -1857,7 +1866,7 @@ InitFreeMailboxList:
 	blt %cr0,.0003
 	subi %a1,%a1,MBX_SIZE		# backup
 	stptr %r0,MBX_LINK[%a1]	# update last link to null
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Link each TCB to the next in the free list.
@@ -1877,7 +1886,7 @@ InitFreeTCBList:
 	blt %cr0,.0001
 	subi %a1,%a1,TCB_SIZE			# zero out the last link
 	stptr %r0,TBCNext[%a1]
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # Initialize Femtiki
@@ -1968,7 +1977,7 @@ InitAppOne:
 	loadi %a1,1
 	stb		%a1,ACBHasFocus[%a0]
 	stb		%a1,ACBTaskList[%a0]
-	blr
+	ret
 
 #------------------------------------------------------------------------------
 # When called, the context for the task has already been stored in the TCB.

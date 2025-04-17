@@ -40,6 +40,10 @@
 .set MMU_PADR,0xFFF40050
 .set MMU_PADRV,0xFFF40060
 
+	.bss
+	.4byte _lastSearchedPAMWord
+
+	.text
 # ------------------------------------------------------------------------------
 # Clear a page of memory
 #
@@ -63,7 +67,10 @@ _ClearPage:
 
 # ------------------------------------------------------------------------------
 # Search for a memory page that is not used yet. Mark it as in use and return
-# the address. The search proceeds 32-bits at a time.
+# the address. The search proceeds 32-bits at a time. During the search 32
+# pages are marked allocated in an atomic fashion to prevent interference from
+# another source. Once it is determined which individual page to allocate the
+# original state of the 32 pages is restored, plus the page marked allocated.
 #
 # Parameters:
 #		none
@@ -74,24 +81,31 @@ _ClearPage:
 
 _FindFreePage:
 	push %a1-%a4		# save %a1 to %a4
-	loadi %a0,_PAM
-	loadi %a1,0
+	load %a0,_lastSearchedPAMWord
+	loadi %a1,MEMSZ
 	# search the PAM 32-bits at a time for a free page
 .0002:
-	load %a2,[%a0]		# get alloc status
+	loadi %a4,-1
+	amoswap %a2,%a4,[%a0]	# set all the bits
 	cntlo %a3,%a2			# find the first zero
 	cmp %cr0,%a3,32		# 32 1's mean all pages in group allocated
-	pne %cr0,.0001
+	bne %cr0,.0001
 	addi %a0,%a0,4			# move to next group
 	cmpai %cr0,%a0,_PAMend	# end of table?
-	blt %cr0,.0002
+	plt %cr0,.0003
+	loadi %a0,_PAM		#start searching from beginning
+.0003:
+	addi. %a1,%a1,-1
+	bgt %cr0,.0002
 	loadi. %a0,0			# return zero if no pages available
 	pop %a1-%a4
 	blr
 	# Here there was a page available
 .0001:
-	subf %a3,%a3,31		# %a3 was 1 to 31
-	sll %a4,1,%a3
+	store %a0,_lastSearchedPAMWord
+	subf %a3,%a3,31		# %a3 was 0 to 31
+	loadi %a4,1
+	sll %a4,%a4,%a3
 	or %a2,%a2,%a4			# set bit
 	store %a2,[%a0]		# update PAM, mark page used
 	sub %a0,%a0,_PAM	# %a0 = tetra index into PAM
@@ -108,8 +122,13 @@ _FindFreePage:
 
 
 # ------------------------------------------------------------------------------
-# Gets the address for the page table entry given the virtual address. Walks
-# the page table. Currently assumes a two-level page table.
+# Gets the address for the page table entry given the virtual address. Sends a
+# request for the address to the MMU, then spins waiting for a response.
+# Usually the MMU would respond within a few clock cycles, if it is a valid
+# address. If it is an invalid address, then a page fault may occur and that
+|# could take a lot more clocks to process. There are timeouts on both locking
+# the MMU semaphore and spinning waiting for a response. If a timeout occurs
+# then a -1 is returned.
 #
 # Side Effects:
 # 	Calling this routine may cause a page fault if the address cannot be
@@ -118,9 +137,41 @@ _FindFreePage:
 # Parameters:
 #		a0 = virtual address to translate
 # Returns:
-#		a0 = physical address
+#		a0 = physical address (-1 if timeout)
 # ------------------------------------------------------------------------------
 
+_GetPageTableEntryAddress:
+	push %br1
+	push %a1
+	move %a1,%a0
+	loadi %a0,-1
+	bl LockMMUSemaphore
+	pne %cr0,.0001
+.0003:
+	loadi %a0,-1
+	pop %a1
+	pop %br1
+	blr
+.0001:
+	loadi %a0,200000
+	store %a1,MMU_VADR
+.0002:
+	addi %a0,%a0,-1
+	beq %cr0,.0004
+	load. %a1,MMU_PADRV
+	beq %cr0,.0002
+	load. %a0,MMU_PADR
+	macUnlockMMUSemaphore
+	pop %a1
+	pop %br1
+	blr
+.0004:
+	macUnlockMMUSemaphore
+	b .0003
+
+.if 0
+# Walks the page table. Currently assumes a two-level page table.
+# Incomplete - needs to include the base/bound registers.
 _GetPageTableEntryAddress:
 	push %a1-%a6
 .0001:
@@ -170,6 +221,7 @@ _GetPageTableEntryAddress:
 	loadi %a0,0
 	pop %a1-%a6
 	blr
+.endif
 
 # ------------------------------------------------------------------------------
 # Page fault handler. Triggered when there is no translation for a virtual
@@ -203,10 +255,10 @@ _PageFaultHandlerISR:
 	bl _ClearPage
 	# Should add the base address of the memory from the region table
 	loadi %a5,8					# maximum numober of levels of page tables (limits looping)
-	load %a1,MMU_PTBR		# %a1 = address of page table
-	load %t0,MMU_PFA			# t0 = fault address (virtual address)
-	srli %a2,%t0,26				# %a2 = index into root page table
-	loada %a6,[%a1+%a2*4]	# %a6 = PTE address
+	load %a1,MMU_PTBR		# a1 = address of page table
+	load %t0,MMU_PFA			# t0 = fault address (virtual address), clear page fault
+	srli %a2,%t0,26				# a2 = index into root page table
+	loada %a6,[%a1+%a2*4]	# a6 = PTE address
 	load. %a3,[%a6]				# Get the PTE
 	bgt %cr0,.0002				# check valid bit (bit 31)
 .0003:
@@ -221,11 +273,16 @@ _PageFaultHandlerISR:
 	andi %a2,%a2,0xFFF				# convert to index into page
 	slli %a2,%a2,2						# convert index to page offset
 	or %a6,%a2,%a4						# %a6 = pointer to entry now
+	loadi %a0,-1
+	bl LockPMTSemaphore
+	load. %a3,[%a6]					# Get the PTE
+	blt %cr0,.0006					# Check PTE was invalid, if not something is wrong
 	# set the PTE to point to the page
 	srli %a0,%a0,LOG_PGSZ
 	andi %a0,%a0,0x1FFF		# Keep only low order bits of page number
 	ori %a0,%a0,0x8000E000	# set valid bit, and type 0 page, user, rwx=7
 	store %a0,[%a6]				# update the page table
+	macUnlockPMTSemaphore
 	pop %a0-%t0
 	pop %br1
 	rfi
@@ -243,6 +300,8 @@ _PageFaultHandlerISR:
 	or %a3,%a0,0xC0000000	# set valid bit, and type 2 page
 	store %a3,[%a6]				# update the page table
 	b .0004
+.0006:
+	macUnlockPMTSemaphore
 	# Here there was no memory available
 .0005:
 	pop %a0-%t0

@@ -597,7 +597,7 @@ FMTK_SendMsg:
 	macUnlockMSGSemaphore
 	# The ready queue changed, maybe a different task is higher priority,
 	# invoke scheduling
-	bli FemtikiTimerISR
+	macReschedule
 .0008:
 	loadi %a0,E_Ok
 	pop %a5-%a7
@@ -823,7 +823,7 @@ FMTK_WaitMsg:
 	# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # Reschedule will cause control to pass to another thread. This thread is
   # waiting.
-	bli FemtikiTimerISR
+	macReschedule
 	# Control will return here as a result of a SendMsg or a timeout expiring
 	# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	bl GetRunningTCBPtr

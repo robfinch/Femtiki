@@ -26,7 +26,7 @@
 //#include "../inc/errno.h"
 #include "../inc/types.h"
 
-#define NPAGES	65536
+#define NPAGES	65536-1024		// 1024 OS pages
 #define CARD_MEMORY		0xFFFFFFFFFFCE0000
 #define IPT_MMU				0xFFFFFFFFFFDCD000
 #define IPT
@@ -39,6 +39,7 @@
 
 extern byte *os_brk;
 
+extern unsigned int lastSearchedPAMWord;
 extern int errno;
 extern __int8 *osmem;
 extern int highest_data_word;
@@ -58,8 +59,9 @@ extern __int8* FindFreePage();
 extern unsigned __int32* GetPageTableEntryAddress(unsigned __int32* virtadr);
 
 //unsigned __int32 *mmu_entries;
-extern unsigned __int32* page_table;
+extern unsigned __int32 PAM[(NPAGES+1)/32];
 extern PMTE PageManagementTable[NPAGES];
+extern unsigned __int32* page_table;
 extern byte *brks[512];
 extern unsigned __int32 pebble[512];
 
@@ -164,6 +166,7 @@ void init_memory_management()
 	// allocation to return 0.
 	DBGDisplayChar('A');
 	sys_pages_available = NPAGES;
+	lastSearchPAMWord = PAM;
   
   // Allocate 16MB to the OS, 8MB OS, 8MB video frame buffer
   osmem = pt_alloc(8388607,7);
